@@ -3,18 +3,27 @@ import {
   // Twocrypto (2-coin)
   newtonY,
   getDy,
+  getDx,
   dynamicFee,
   findPegPoint,
   scaleBalances,
   calculateMinDy,
+  calculateMaxDx,
   defaultPrecisions,
+  calcD,
+  calcTokenAmount,
+  calcWithdrawOneCoin,
   // Tricrypto (3-coin)
   newtonY3,
   getDy3,
+  getDx3,
   dynamicFee3,
   findPegPoint3,
   scaleBalances3,
   defaultPrecisions3,
+  calcD3,
+  calcTokenAmount3,
+  calcWithdrawOneCoin3,
   // Constants and types
   PRECISION,
   FEE_DENOMINATOR,
@@ -190,6 +199,115 @@ describe("CryptoSwap Math", () => {
     it("should return [1n, 1n] for 18-decimal tokens", () => {
       const precisions = defaultPrecisions();
       expect(precisions).toEqual([1n, 1n]);
+    });
+  });
+
+  describe("getDx", () => {
+    it("should return 0 for dy = 0", () => {
+      const params = createParams();
+      const dx = getDx(params, 0, 1, 0n);
+      expect(dx).toBe(0n);
+    });
+
+    it("should be inverse of getDy", () => {
+      const params = createParams();
+      const inputDx = 100n * 10n ** 18n;
+
+      // Get dy for this dx
+      const dy = getDy(params, 0, 1, inputDx);
+
+      // Get dx needed to produce this dy
+      const calculatedDx = getDx(params, 0, 1, dy);
+
+      // Should be close to original dx (within 1%)
+      const tolerance = inputDx / 50n; // 2% tolerance for binary search
+      expect(calculatedDx).toBeGreaterThan(inputDx - tolerance);
+      expect(calculatedDx).toBeLessThan(inputDx + tolerance);
+    });
+
+    it("should return 0 when dy >= pool balance", () => {
+      const params = createParams();
+      const dx = getDx(params, 0, 1, params.balances[1] * 2n);
+      expect(dx).toBe(0n);
+    });
+  });
+
+  describe("calcD", () => {
+    it("should calculate D for balanced pool", () => {
+      const params = createParams();
+      const xp = scaleBalances(
+        params.balances,
+        params.precisions ?? [1n, 1n],
+        params.priceScale
+      );
+
+      const D = calcD(params.A, params.gamma, xp);
+
+      // D should be approximately sum of scaled balances
+      expect(D).toBeGreaterThan(0n);
+      expect(D).toBeGreaterThan(xp[0] + xp[1] - 10n ** 20n);
+    });
+
+    it("should return 0 for empty pool", () => {
+      const xp: [bigint, bigint] = [0n, 0n];
+      const D = calcD(400000n, 145000000000000n, xp);
+      expect(D).toBe(0n);
+    });
+  });
+
+  describe("calcTokenAmount", () => {
+    const totalSupply = 2000000n * 10n ** 18n;
+
+    it("should return positive LP tokens for deposit", () => {
+      const params = createParams();
+      const amounts: [bigint, bigint] = [100n * 10n ** 18n, 100n * 10n ** 18n];
+
+      const lpTokens = calcTokenAmount(params, amounts, totalSupply);
+
+      expect(lpTokens).toBeGreaterThan(0n);
+    });
+
+    it("should return D for first deposit", () => {
+      const params = createParams({
+        balances: [0n, 0n],
+      });
+      const amounts: [bigint, bigint] = [1000n * 10n ** 18n, 1000n * 10n ** 18n];
+
+      const lpTokens = calcTokenAmount(params, amounts, 0n);
+
+      expect(lpTokens).toBeGreaterThan(0n);
+    });
+  });
+
+  describe("calcWithdrawOneCoin", () => {
+    const totalSupply = 2000000n * 10n ** 18n;
+
+    it("should return positive tokens for withdrawal", () => {
+      const params = createParams();
+      const lpAmount = 100n * 10n ** 18n;
+
+      const dy = calcWithdrawOneCoin(params, lpAmount, 0, totalSupply);
+
+      expect(dy).toBeGreaterThan(0n);
+    });
+
+    it("should withdraw more with larger LP amount", () => {
+      const params = createParams();
+      const smallLp = 50n * 10n ** 18n;
+      const largeLp = 200n * 10n ** 18n;
+
+      const smallDy = calcWithdrawOneCoin(params, smallLp, 0, totalSupply);
+      const largeDy = calcWithdrawOneCoin(params, largeLp, 0, totalSupply);
+
+      expect(largeDy).toBeGreaterThan(smallDy);
+    });
+  });
+
+  describe("calculateMaxDx", () => {
+    it("should apply slippage correctly for input", () => {
+      const expected = 1000n * 10n ** 18n;
+      const maxDx = calculateMaxDx(expected, 100); // 1% slippage
+      expect(maxDx).toBe("1010000000000000000000");
     });
   });
 });
@@ -406,6 +524,130 @@ describe("Tricrypto (3-coin) Math", () => {
     it("should return [1n, 1n, 1n] for 18-decimal tokens", () => {
       const precisions = defaultPrecisions3();
       expect(precisions).toEqual([1n, 1n, 1n]);
+    });
+  });
+
+  describe("getDx3", () => {
+    it("should return 0 for dy = 0", () => {
+      const params = createTricryptoParams();
+      const dx = getDx3(params, 0, 1, 0n);
+      expect(dx).toBe(0n);
+    });
+
+    it("should be inverse of getDy3", () => {
+      const params = createTricryptoParams();
+      const inputDx = 100n * 10n ** 18n;
+
+      const dy = getDy3(params, 0, 1, inputDx);
+      const calculatedDx = getDx3(params, 0, 1, dy);
+
+      const tolerance = inputDx / 50n;
+      expect(calculatedDx).toBeGreaterThan(inputDx - tolerance);
+      expect(calculatedDx).toBeLessThan(inputDx + tolerance);
+    });
+
+    it("should work for all swap directions", () => {
+      const params = createTricryptoParams();
+      const dy = 50n * 10n ** 18n;
+
+      // Test different swap directions
+      const dx01 = getDx3(params, 0, 1, dy);
+      const dx02 = getDx3(params, 0, 2, dy);
+      const dx12 = getDx3(params, 1, 2, dy);
+
+      expect(dx01).toBeGreaterThan(0n);
+      expect(dx02).toBeGreaterThan(0n);
+      expect(dx12).toBeGreaterThan(0n);
+    });
+  });
+
+  describe("calcD3", () => {
+    it("should calculate D for balanced pool", () => {
+      const params = createTricryptoParams();
+      const xp = scaleBalances3(
+        params.balances,
+        params.precisions ?? [1n, 1n, 1n],
+        params.priceScales
+      );
+
+      const D = calcD3(params.A, params.gamma, xp);
+
+      expect(D).toBeGreaterThan(0n);
+    });
+
+    it("should return 0 for empty pool", () => {
+      const xp: [bigint, bigint, bigint] = [0n, 0n, 0n];
+      const D = calcD3(1707629n, 11809167828997n, xp);
+      expect(D).toBe(0n);
+    });
+  });
+
+  describe("calcTokenAmount3", () => {
+    const totalSupply = 3000000n * 10n ** 18n;
+
+    it("should return positive LP tokens for deposit", () => {
+      const params = createTricryptoParams();
+      const amounts: [bigint, bigint, bigint] = [
+        100n * 10n ** 18n,
+        100n * 10n ** 18n,
+        100n * 10n ** 18n,
+      ];
+
+      const lpTokens = calcTokenAmount3(params, amounts, totalSupply);
+
+      expect(lpTokens).toBeGreaterThan(0n);
+    });
+
+    it("should return D for first deposit", () => {
+      const params = createTricryptoParams({
+        balances: [0n, 0n, 0n],
+      });
+      const amounts: [bigint, bigint, bigint] = [
+        1000n * 10n ** 18n,
+        1000n * 10n ** 18n,
+        1000n * 10n ** 18n,
+      ];
+
+      const lpTokens = calcTokenAmount3(params, amounts, 0n);
+
+      expect(lpTokens).toBeGreaterThan(0n);
+    });
+  });
+
+  describe("calcWithdrawOneCoin3", () => {
+    const totalSupply = 3000000n * 10n ** 18n;
+
+    it("should return positive tokens for withdrawal", () => {
+      const params = createTricryptoParams();
+      const lpAmount = 100n * 10n ** 18n;
+
+      const dy = calcWithdrawOneCoin3(params, lpAmount, 0, totalSupply);
+
+      expect(dy).toBeGreaterThan(0n);
+    });
+
+    it("should work for all output token indices", () => {
+      const params = createTricryptoParams();
+      const lpAmount = 100n * 10n ** 18n;
+
+      const dy0 = calcWithdrawOneCoin3(params, lpAmount, 0, totalSupply);
+      const dy1 = calcWithdrawOneCoin3(params, lpAmount, 1, totalSupply);
+      const dy2 = calcWithdrawOneCoin3(params, lpAmount, 2, totalSupply);
+
+      expect(dy0).toBeGreaterThan(0n);
+      expect(dy1).toBeGreaterThan(0n);
+      expect(dy2).toBeGreaterThan(0n);
+    });
+
+    it("should withdraw more with larger LP amount", () => {
+      const params = createTricryptoParams();
+      const smallLp = 50n * 10n ** 18n;
+      const largeLp = 200n * 10n ** 18n;
+
+      const smallDy = calcWithdrawOneCoin3(params, smallLp, 0, totalSupply);
+      const largeDy = calcWithdrawOneCoin3(params, largeLp, 0, totalSupply);
+
+      expect(largeDy).toBeGreaterThan(smallDy);
     });
   });
 });

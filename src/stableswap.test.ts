@@ -2,12 +2,16 @@ import { describe, it, expect } from "vitest";
 import {
   getD,
   getY,
+  getYD,
   getDy,
+  getDx,
   dynamicFee,
   findPegPoint,
   calculateMinDy,
   validateSlippage,
   computeAnn,
+  calcTokenAmount,
+  calcWithdrawOneCoin,
   A_PRECISION,
   FEE_DENOMINATOR,
 } from "./stableswap";
@@ -184,6 +188,128 @@ describe("StableSwap Math", () => {
       expect(() => validateSlippage("5")).toThrow();
       expect(() => validateSlippage("6000")).toThrow();
       expect(() => validateSlippage("invalid")).toThrow();
+    });
+  });
+
+  describe("getYD", () => {
+    it("should find y given D", () => {
+      const balances = [1000n * 10n ** 18n, 1000n * 10n ** 18n];
+      const D = getD(balances, Ann);
+
+      // Reduce D by 10%
+      const newD = (D * 90n) / 100n;
+      const newY = getYD(0, balances, Ann, newD);
+
+      // newY should be less than original balance
+      expect(newY).toBeLessThan(balances[0]);
+      expect(newY).toBeGreaterThan(0n);
+    });
+
+    it("should be consistent with getY for same D", () => {
+      const balances = [1000n * 10n ** 18n, 1100n * 10n ** 18n];
+      const D = getD(balances, Ann);
+
+      // getYD should give similar results to getY when D is unchanged
+      const yFromYD = getYD(1, balances, Ann, D);
+      // Should be close to original balance
+      expect(yFromYD).toBeGreaterThan(balances[1] - 10n ** 16n);
+      expect(yFromYD).toBeLessThan(balances[1] + 10n ** 16n);
+    });
+  });
+
+  describe("getDx", () => {
+    it("should return 0 for dy = 0", () => {
+      const balances = [1000n * 10n ** 18n, 1000n * 10n ** 18n];
+      const dx = getDx(0, 1, 0n, balances, Ann, baseFee, feeMultiplier);
+      expect(dx).toBe(0n);
+    });
+
+    it("should be inverse of getDy approximately", () => {
+      const balances = [1000n * 10n ** 18n, 1000n * 10n ** 18n];
+      const dx = 10n * 10n ** 18n;
+
+      // Get dy for this dx
+      const dy = getDy(0, 1, dx, balances, Ann, baseFee, feeMultiplier);
+
+      // Get dx needed to produce this dy
+      const dxCalculated = getDx(0, 1, dy, balances, Ann, baseFee, feeMultiplier);
+
+      // Should be close to original dx (within 1% due to fee approximation)
+      const tolerance = dx / 100n;
+      expect(dxCalculated).toBeGreaterThan(dx - tolerance);
+      expect(dxCalculated).toBeLessThan(dx + tolerance);
+    });
+
+    it("should return 0 when dy >= pool balance", () => {
+      const balances = [1000n * 10n ** 18n, 1000n * 10n ** 18n];
+      const dx = getDx(0, 1, 2000n * 10n ** 18n, balances, Ann, baseFee, feeMultiplier);
+      expect(dx).toBe(0n);
+    });
+  });
+
+  describe("calcTokenAmount", () => {
+    const totalSupply = 2000n * 10n ** 18n;
+
+    it("should return D for first deposit", () => {
+      const balances = [0n, 0n];
+      const amounts = [100n * 10n ** 18n, 100n * 10n ** 18n];
+      const lpTokens = calcTokenAmount(amounts, true, balances, Ann, 0n, baseFee);
+
+      // Should be approximately 200 (sum of deposits)
+      expect(lpTokens).toBeGreaterThan(199n * 10n ** 18n);
+      expect(lpTokens).toBeLessThan(201n * 10n ** 18n);
+    });
+
+    it("should return proportional tokens for balanced deposit", () => {
+      const balances = [1000n * 10n ** 18n, 1000n * 10n ** 18n];
+      const amounts = [100n * 10n ** 18n, 100n * 10n ** 18n]; // 10% deposit
+
+      const lpTokens = calcTokenAmount(amounts, true, balances, Ann, totalSupply, baseFee);
+
+      // Should get approximately 10% of total supply
+      expect(lpTokens).toBeGreaterThan(190n * 10n ** 18n);
+      expect(lpTokens).toBeLessThan(210n * 10n ** 18n);
+    });
+
+    it("should return less tokens for imbalanced deposit (fee)", () => {
+      const balances = [1000n * 10n ** 18n, 1000n * 10n ** 18n];
+      const balancedAmounts = [100n * 10n ** 18n, 100n * 10n ** 18n];
+      const imbalancedAmounts = [200n * 10n ** 18n, 0n];
+
+      const balancedTokens = calcTokenAmount(balancedAmounts, true, balances, Ann, totalSupply, baseFee);
+      const imbalancedTokens = calcTokenAmount(imbalancedAmounts, true, balances, Ann, totalSupply, baseFee);
+
+      // Imbalanced deposit should give fewer tokens due to fees
+      expect(imbalancedTokens).toBeLessThan(balancedTokens);
+    });
+  });
+
+  describe("calcWithdrawOneCoin", () => {
+    const totalSupply = 2000n * 10n ** 18n;
+
+    it("should return tokens for single-sided withdrawal", () => {
+      const balances = [1000n * 10n ** 18n, 1000n * 10n ** 18n];
+      const lpAmount = 100n * 10n ** 18n; // 5% of supply
+
+      const [dy, feeAmount] = calcWithdrawOneCoin(lpAmount, 0, balances, Ann, totalSupply, baseFee);
+
+      // Should get some tokens
+      expect(dy).toBeGreaterThan(0n);
+      // Should be less than proportional due to single-sided withdrawal
+      expect(dy).toBeLessThan(100n * 10n ** 18n);
+      // Fee should be positive
+      expect(feeAmount).toBeGreaterThanOrEqual(0n);
+    });
+
+    it("should withdraw more when LP represents more value", () => {
+      const balances = [1000n * 10n ** 18n, 1000n * 10n ** 18n];
+      const smallLp = 50n * 10n ** 18n;
+      const largeLp = 200n * 10n ** 18n;
+
+      const [smallDy] = calcWithdrawOneCoin(smallLp, 0, balances, Ann, totalSupply, baseFee);
+      const [largeDy] = calcWithdrawOneCoin(largeLp, 0, balances, Ann, totalSupply, baseFee);
+
+      expect(largeDy).toBeGreaterThan(smallDy);
     });
   });
 });

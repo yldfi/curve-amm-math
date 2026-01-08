@@ -281,4 +281,224 @@ export interface StableSwapPoolParams {
   fee: bigint;
   offpegFeeMultiplier: bigint;
   nCoins: number;
+  /** Total LP token supply (needed for liquidity calculations) */
+  totalSupply?: bigint;
+}
+
+/**
+ * Calculate y given D using Newton's method
+ * Used for liquidity calculations where D changes (add/remove liquidity)
+ * Differs from getY which keeps D constant
+ *
+ * @param i - Index of token to solve for
+ * @param xp - Pool balances (will use all except index i)
+ * @param Ann - A * A_PRECISION * N_COINS
+ * @param D - Target D invariant
+ * @returns Value of y[i] that satisfies invariant with given D
+ */
+export function getYD(i: number, xp: bigint[], Ann: bigint, D: bigint): bigint {
+  const N = BigInt(xp.length);
+
+  // c = D^(n+1) / (n^n * prod(x_k for k != i) * Ann * n)
+  // S = sum(x_k for k != i)
+  let c = D;
+  let S = 0n;
+
+  for (let k = 0; k < xp.length; k++) {
+    if (k !== i) {
+      S += xp[k];
+      c = (c * D) / (xp[k] * N);
+    }
+  }
+
+  c = (c * D * A_PRECISION) / (Ann * N);
+  const b = S + (D * A_PRECISION) / Ann;
+
+  // Newton iteration for y
+  let y = D;
+  for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
+    const prevY = y;
+    // y = (y^2 + c) / (2y + b - D)
+    y = (y * y + c) / (2n * y + b - D);
+
+    if (y > prevY ? y - prevY <= 1n : prevY - y <= 1n) {
+      break;
+    }
+  }
+
+  return y;
+}
+
+/**
+ * Calculate get_dx (input amount needed for desired output dy)
+ * Reverse of getDy - given how much you want out, calculate how much to put in
+ *
+ * @param i - Input token index
+ * @param j - Output token index
+ * @param dy - Desired output amount
+ * @param xp - Pool balances (normalized to 18 decimals)
+ * @param Ann - A * A_PRECISION * N_COINS
+ * @param baseFee - Base fee from pool
+ * @param feeMultiplier - Off-peg fee multiplier from pool
+ * @returns Required input amount to receive dy output
+ */
+export function getDx(
+  i: number,
+  j: number,
+  dy: bigint,
+  xp: bigint[],
+  Ann: bigint,
+  baseFee: bigint,
+  feeMultiplier: bigint
+): bigint {
+  if (dy === 0n) return 0n;
+  if (dy >= xp[j]) return 0n; // Can't withdraw more than pool has
+
+  const D = getD(xp, Ann);
+
+  // Estimate fee to gross up dy
+  // Use current balances for fee estimation (approximation)
+  const fee = dynamicFee(xp[i], xp[j], baseFee, feeMultiplier);
+
+  // Gross up dy to account for fee (dy_before_fee = dy * FEE_DENOM / (FEE_DENOM - fee))
+  const dyWithFee = (dy * FEE_DENOMINATOR) / (FEE_DENOMINATOR - fee);
+
+  // New y[j] after withdrawal
+  const newY = xp[j] - dyWithFee;
+  if (newY <= 0n) return 0n;
+
+  // Use getY to find what x[i] needs to be for this y[j]
+  // We pass newY as if it were x[i], and solve for the "other" token
+  // But getY expects a different interface - we need to construct xp with newY at j
+  const newXp = [...xp];
+  newXp[j] = newY;
+
+  // Now find x[i] using Newton's method
+  // We need to solve for x[i] given newXp[j] and all other balances
+  const x = getY(j, i, newY, xp, Ann, D);
+
+  // dx is the difference
+  const dx = x - xp[i] + 1n; // +1 for rounding up
+
+  return dx > 0n ? dx : 0n;
+}
+
+/**
+ * Calculate LP tokens received for depositing amounts
+ * Matches calc_token_amount from Curve pools
+ *
+ * @param amounts - Amount of each token to deposit
+ * @param isDeposit - true for deposit, false for withdrawal
+ * @param xp - Current pool balances
+ * @param Ann - A * A_PRECISION * N_COINS
+ * @param totalSupply - Current LP token total supply
+ * @param fee - Base fee
+ * @returns LP tokens to mint (deposit) or burn (withdrawal)
+ */
+export function calcTokenAmount(
+  amounts: bigint[],
+  isDeposit: boolean,
+  xp: bigint[],
+  Ann: bigint,
+  totalSupply: bigint,
+  fee: bigint
+): bigint {
+  const N = BigInt(xp.length);
+  const N_COINS = xp.length;
+
+  const D0 = getD(xp, Ann);
+  if (D0 === 0n && totalSupply === 0n) {
+    // First deposit - LP tokens = D
+    const newXp = amounts.map((a, idx) => xp[idx] + a);
+    return getD(newXp, Ann);
+  }
+
+  // Calculate new balances
+  const newXp = xp.map((bal, idx) =>
+    isDeposit ? bal + amounts[idx] : bal - amounts[idx]
+  );
+
+  const D1 = getD(newXp, Ann);
+
+  // Apply fee for imbalanced deposits/withdrawals
+  // fee per token = fee * N_COINS / (4 * (N_COINS - 1))
+  const tokenFee = (fee * N) / (4n * (N - 1n));
+
+  // Calculate fee on difference from ideal balance change
+  let D2 = D1;
+  if (totalSupply > 0n) {
+    const xpReduced: bigint[] = [];
+    for (let i = 0; i < N_COINS; i++) {
+      const idealBalance = (xp[i] * D1) / D0;
+      const diff = newXp[i] > idealBalance
+        ? newXp[i] - idealBalance
+        : idealBalance - newXp[i];
+      xpReduced.push(newXp[i] - (tokenFee * diff) / FEE_DENOMINATOR);
+    }
+    D2 = getD(xpReduced, Ann);
+  }
+
+  // LP tokens to mint/burn
+  if (totalSupply === 0n) {
+    return D1;
+  }
+
+  const diff = isDeposit ? D2 - D0 : D0 - D2;
+  return (totalSupply * diff) / D0;
+}
+
+/**
+ * Calculate tokens received for single-sided LP withdrawal
+ * Matches calc_withdraw_one_coin from Curve pools
+ *
+ * @param tokenAmount - LP tokens to burn
+ * @param i - Index of token to withdraw
+ * @param xp - Current pool balances
+ * @param Ann - A * A_PRECISION * N_COINS
+ * @param totalSupply - Current LP token total supply
+ * @param fee - Base fee
+ * @returns [dy, fee_amount] - tokens received and fee charged
+ */
+export function calcWithdrawOneCoin(
+  tokenAmount: bigint,
+  i: number,
+  xp: bigint[],
+  Ann: bigint,
+  totalSupply: bigint,
+  fee: bigint
+): [bigint, bigint] {
+  const N = BigInt(xp.length);
+  const N_COINS = xp.length;
+
+  const D0 = getD(xp, Ann);
+
+  // D1 = D0 - tokenAmount * D0 / totalSupply
+  const D1 = D0 - (tokenAmount * D0) / totalSupply;
+
+  // Calculate new y[i] for the reduced D
+  const newY = getYD(i, xp, Ann, D1);
+
+  // Fee per token = fee * N_COINS / (4 * (N_COINS - 1))
+  const tokenFee = (fee * N) / (4n * (N - 1n));
+
+  // Calculate reduced balances for fee calculation
+  const xpReduced: bigint[] = [];
+  for (let j = 0; j < N_COINS; j++) {
+    let dxExpected: bigint;
+    if (j === i) {
+      dxExpected = (xp[j] * D1) / D0 - newY;
+    } else {
+      dxExpected = xp[j] - (xp[j] * D1) / D0;
+    }
+    xpReduced.push(xp[j] - (tokenFee * dxExpected) / FEE_DENOMINATOR);
+  }
+
+  // Final y after fee
+  const finalY = getYD(i, xpReduced, Ann, D1);
+
+  // dy = xpReduced[i] - finalY - 1 (for rounding)
+  const dy = xpReduced[i] - finalY - 1n;
+  const feeAmount = xp[i] - newY - dy;
+
+  return [dy > 0n ? dy : 0n, feeAmount > 0n ? feeAmount : 0n];
 }

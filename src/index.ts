@@ -13,8 +13,17 @@
  * const baseFee = 4000000n;                        // 0.04%
  * const feeMultiplier = 2n * 10n**10n;             // 2x multiplier
  *
+ * // Get output for input (swap quote)
  * const dy = stableswap.getDy(0, 1, 10n * 10n**18n, xp, Ann, baseFee, feeMultiplier);
- * console.log(`Swap 10 tokens: get ${dy / 10n**18n} tokens out`);
+ *
+ * // Get input needed for desired output (reverse quote)
+ * const dx = stableswap.getDx(0, 1, 10n * 10n**18n, xp, Ann, baseFee, feeMultiplier);
+ *
+ * // Calculate LP tokens for deposit
+ * const lpTokens = stableswap.calcTokenAmount([5n * 10n**18n, 5n * 10n**18n], true, xp, Ann, totalSupply, baseFee);
+ *
+ * // Calculate withdrawal amount
+ * const [withdrawn, fee] = stableswap.calcWithdrawOneCoin(lpTokens, 0, xp, Ann, totalSupply, baseFee);
  * ```
  *
  * @example Basic CryptoSwap usage
@@ -28,12 +37,22 @@
  *   midFee: 3000000n,
  *   outFee: 30000000n,
  *   feeGamma: 230000000000000n,
- *   priceScales: [1000000000000000000n], // 1:1 for same-value tokens
+ *   priceScale: 1000000000000000000n, // 1:1 for same-value tokens
  *   balances: [1000n * 10n**18n, 1000n * 10n**18n],
  *   precisions: [1n, 1n], // Both 18 decimals
  * };
  *
+ * // Get output for input
  * const dy = cryptoswap.getDy(params, 0, 1, 10n * 10n**18n);
+ *
+ * // Get input needed for desired output
+ * const dx = cryptoswap.getDx(params, 0, 1, 10n * 10n**18n);
+ *
+ * // Calculate LP tokens for deposit
+ * const lpTokens = cryptoswap.calcTokenAmount(params, [5n * 10n**18n, 5n * 10n**18n], totalSupply);
+ *
+ * // Calculate withdrawal amount
+ * const withdrawn = cryptoswap.calcWithdrawOneCoin(params, lpTokens, 0, totalSupply);
  * ```
  *
  * @packageDocumentation
