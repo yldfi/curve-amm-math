@@ -1,0 +1,60 @@
+/**
+ * curve-amm-math
+ *
+ * Off-chain TypeScript implementations of Curve AMM math for gas-free calculations.
+ * Supports StableSwap (2-8 coins) and CryptoSwap (2-3 coins) pool types.
+ *
+ * @example Basic StableSwap usage
+ * ```typescript
+ * import { stableswap } from 'curve-amm-math';
+ *
+ * const xp = [1000n * 10n**18n, 1100n * 10n**18n]; // Pool balances
+ * const Ann = stableswap.computeAnn(100n, 2);      // A=100, 2 coins
+ * const baseFee = 4000000n;                        // 0.04%
+ * const feeMultiplier = 2n * 10n**10n;             // 2x multiplier
+ *
+ * const dy = stableswap.getDy(0, 1, 10n * 10n**18n, xp, Ann, baseFee, feeMultiplier);
+ * console.log(`Swap 10 tokens: get ${dy / 10n**18n} tokens out`);
+ * ```
+ *
+ * @example Basic CryptoSwap usage
+ * ```typescript
+ * import { cryptoswap } from 'curve-amm-math';
+ *
+ * const params: cryptoswap.CryptoSwapParams = {
+ *   A: 400000n,
+ *   gamma: 145000000000000n,
+ *   D: 2000000000000000000000n,
+ *   midFee: 3000000n,
+ *   outFee: 30000000n,
+ *   feeGamma: 230000000000000n,
+ *   priceScales: [1000000000000000000n], // 1:1 for same-value tokens
+ *   balances: [1000n * 10n**18n, 1000n * 10n**18n],
+ *   precisions: [1n, 1n], // Both 18 decimals
+ * };
+ *
+ * const dy = cryptoswap.getDy(params, 0, 1, 10n * 10n**18n);
+ * ```
+ *
+ * @packageDocumentation
+ */
+
+// StableSwap math (for pegged assets: stablecoins, liquid staking tokens, etc.)
+export * as stableswap from "./stableswap";
+export type { StableSwapPoolParams } from "./stableswap";
+
+// CryptoSwap math (for volatile asset pairs)
+export * as cryptoswap from "./cryptoswap";
+export type { CryptoSwapParams } from "./cryptoswap";
+
+// Re-export commonly used constants
+export {
+  A_PRECISION,
+  FEE_DENOMINATOR as STABLESWAP_FEE_DENOMINATOR,
+} from "./stableswap";
+
+export {
+  PRECISION,
+  A_MULTIPLIER,
+  FEE_DENOMINATOR as CRYPTOSWAP_FEE_DENOMINATOR,
+} from "./cryptoswap";
