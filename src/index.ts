@@ -44,8 +44,13 @@ export * as stableswap from "./stableswap";
 export type { StableSwapPoolParams } from "./stableswap";
 
 // CryptoSwap math (for volatile asset pairs)
+// Supports both Twocrypto-NG (2 coins) and Tricrypto-NG (3 coins)
 export * as cryptoswap from "./cryptoswap";
-export type { CryptoSwapParams } from "./cryptoswap";
+export type {
+  CryptoSwapParams,
+  TwocryptoParams,
+  TricryptoParams,
+} from "./cryptoswap";
 
 // Re-export commonly used constants
 export {

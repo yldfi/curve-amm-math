@@ -2,7 +2,7 @@
  * Curve CryptoSwap (v2) Math
  *
  * Off-chain implementation of Curve CryptoSwap formulas for gas-free calculations.
- * Currently supports 2-coin pools (Twocrypto-NG).
+ * Supports both Twocrypto-NG (2 coins) and Tricrypto-NG (3 coins).
  *
  * Based on the CryptoSwap invariant with A and gamma parameters.
  * The dynamic peg mechanism uses price_scale to adjust for token price divergence.
@@ -10,6 +10,7 @@
  * References:
  * - Curve v2 whitepaper: https://curve.fi/files/crypto-pools-paper.pdf
  * - Twocrypto-NG source: https://github.com/curvefi/twocrypto-ng
+ * - Tricrypto-NG source: https://github.com/curvefi/tricrypto-ng
  */
 
 // Precision constants matching Vyper source
@@ -19,10 +20,10 @@ export const FEE_DENOMINATOR = 10n ** 10n;
 export const MAX_ITERATIONS = 255;
 
 /**
- * Pool parameters for CryptoSwap calculations (2-coin pools)
+ * Pool parameters for 2-coin CryptoSwap (Twocrypto-NG)
  */
-export interface CryptoSwapParams {
-  /** Amplification parameter (on-chain A, already scaled by A_MULTIPLIER) */
+export interface TwocryptoParams {
+  /** Amplification parameter (on-chain A) */
   A: bigint;
   /** Gamma parameter for curvature */
   gamma: bigint;
@@ -38,14 +39,43 @@ export interface CryptoSwapParams {
   priceScale: bigint;
   /** Pool balances (unscaled, in token decimals) */
   balances: [bigint, bigint];
-  /** Token precisions (10^(18-decimals) for each token) - default [1n, 1n] for 18-decimal */
+  /** Token precisions (10^(18-decimals) for each token) */
   precisions?: [bigint, bigint];
 }
 
-const N_COINS = 2n;
+/**
+ * Pool parameters for 3-coin CryptoSwap (Tricrypto-NG)
+ */
+export interface TricryptoParams {
+  /** Amplification parameter (on-chain A) */
+  A: bigint;
+  /** Gamma parameter for curvature */
+  gamma: bigint;
+  /** Current invariant D */
+  D: bigint;
+  /** Mid fee (fee when pool is balanced) */
+  midFee: bigint;
+  /** Out fee (fee when pool is imbalanced) */
+  outFee: bigint;
+  /** Fee gamma parameter for fee interpolation */
+  feeGamma: bigint;
+  /** Price scales for tokens 1 and 2 relative to token 0 */
+  priceScales: [bigint, bigint];
+  /** Pool balances (unscaled, in token decimals) */
+  balances: [bigint, bigint, bigint];
+  /** Token precisions (10^(18-decimals) for each token) */
+  precisions?: [bigint, bigint, bigint];
+}
+
+/** Backward-compatible alias */
+export type CryptoSwapParams = TwocryptoParams;
+
+// ============================================
+// Twocrypto (2-coin) Implementation
+// ============================================
 
 /**
- * Newton's method to find y in CryptoSwap invariant
+ * Newton's method to find y in 2-coin CryptoSwap invariant
  * Direct translation from Curve v2 Vyper source: newton_y()
  *
  * @param A - Raw A parameter from pool
@@ -61,6 +91,8 @@ export function newtonY(
   D: bigint,
   i: number
 ): bigint {
+  const N_COINS = 2n;
+
   // x_j is the other token's balance (not the one we're solving for)
   const x_j = x[1 - i];
 
@@ -88,9 +120,7 @@ export function newtonY(
     // S = x_j + y
     const S = x_j + y;
 
-    // _g1k0 = gamma + 10^18
-    // if _g1k0 > K0: _g1k0 = _g1k0 - K0 + 1
-    // else: _g1k0 = K0 - _g1k0 + 1
+    // _g1k0 = |gamma + 10^18 - K0| + 1
     let _g1k0 = gamma + PRECISION;
     if (_g1k0 > K0) {
       _g1k0 = _g1k0 - K0 + 1n;
@@ -113,24 +143,16 @@ export function newtonY(
 
     let yfprime: bigint;
     if (yfprime_base < _dyfprime) {
-      // If yfprime < _dyfprime, halve y and continue
       y = y_prev / 2n;
       continue;
     } else {
       yfprime = yfprime_base - _dyfprime;
     }
 
-    // fprime = yfprime / y
     const fprime = yfprime / y;
-
-    // y_minus = mul1 / fprime
     const y_minus_base = mul1 / fprime;
-
-    // y_plus = (yfprime + 10^18 * D) / fprime + y_minus * 10^18 / K0
     const y_plus =
       (yfprime + PRECISION * D) / fprime + (y_minus_base * PRECISION) / K0;
-
-    // y_minus += 10^18 * S / fprime
     const y_minus = y_minus_base + (PRECISION * S) / fprime;
 
     if (y_plus < y_minus) {
@@ -139,7 +161,6 @@ export function newtonY(
       y = y_plus - y_minus;
     }
 
-    // Check convergence
     const diff = y > y_prev ? y - y_prev : y_prev - y;
     const threshold = y / (10n ** 14n);
     if (diff < (convergence_limit > threshold ? convergence_limit : threshold)) {
@@ -147,19 +168,11 @@ export function newtonY(
     }
   }
 
-  // Did not converge - return best guess
   return y;
 }
 
 /**
- * Calculate dynamic fee for CryptoSwap pool
- * Direct translation from Curve v2 Vyper source: _fee()
- *
- * f = fee_gamma / (fee_gamma + (1 - K))
- * where K = prod(x) / (sum(x) / N)^N
- *
- * When K is high (balanced pool), fee is closer to mid_fee
- * When K is low (imbalanced pool), fee is closer to out_fee
+ * Calculate dynamic fee for 2-coin CryptoSwap pool
  */
 export function dynamicFee(
   xp: [bigint, bigint],
@@ -167,35 +180,22 @@ export function dynamicFee(
   midFee: bigint,
   outFee: bigint
 ): bigint {
-  // f = xp[0] + xp[1] (sum)
+  const N_COINS = 2n;
   const sum = xp[0] + xp[1];
   if (sum === 0n) return midFee;
 
-  // K = (10^18 * N^N) * xp[0] / f * xp[1] / f
-  // For N=2: K = 4 * 10^18 * xp[0] * xp[1] / sum^2
-  // Note: must use same order of operations as Vyper to match exactly
-  const K =
-    ((PRECISION * N_COINS * N_COINS * xp[0]) / sum) * xp[1] / sum;
+  // K = (10^18 * N^N) * prod(xp) / sum^N
+  const K = ((PRECISION * N_COINS * N_COINS * xp[0]) / sum) * xp[1] / sum;
 
-  // f = fee_gamma * 10^18 / (fee_gamma + 10^18 - K)
   const f = (feeGamma * PRECISION) / (feeGamma + PRECISION - K);
-
-  // return (mid_fee * f + out_fee * (10^18 - f)) / 10^18
   return (midFee * f + outFee * (PRECISION - f)) / PRECISION;
 }
 
 /**
- * Off-chain implementation of CryptoSwap get_dy
- * Direct translation from Curve v2 Vyper source
- *
- * @param params Pool parameters
- * @param i Input token index (0 or 1)
- * @param j Output token index (0 or 1)
- * @param dx Input amount (in external units)
- * @returns Output amount after fees (in external units)
+ * Off-chain implementation of Twocrypto get_dy
  */
 export function getDy(
-  params: CryptoSwapParams,
+  params: TwocryptoParams,
   i: number,
   j: number,
   dx: bigint
@@ -205,43 +205,28 @@ export function getDy(
   const { A, gamma, D, midFee, outFee, feeGamma, priceScale, balances } = params;
   const precisions = params.precisions ?? [1n, 1n];
 
-  // price_scale_internal = price_scale * precisions[1]
   const price_scale_internal = priceScale * precisions[1];
-
-  // Start with unscaled balances
   const xp_unscaled: [bigint, bigint] = [balances[0], balances[1]];
-
-  // Add dx to input token BEFORE scaling
   xp_unscaled[i] = xp_unscaled[i] + dx;
 
-  // Scale to internal units
-  // xp = [xp[0] * precisions[0], xp[1] * price_scale_internal / PRECISION]
   const xp: [bigint, bigint] = [
     xp_unscaled[0] * precisions[0],
     (xp_unscaled[1] * price_scale_internal) / PRECISION,
   ];
 
-  // Newton's method to find new y
   const y = newtonY(A, gamma, xp, D, j);
-
-  // dy = xp[j] - y - 1
   let dy = xp[j] - y - 1n;
   if (dy < 0n) return 0n;
 
-  // Update xp[j] for fee calculation
   const xp_after: [bigint, bigint] = [xp[0], xp[1]];
   xp_after[j] = y;
 
-  // Convert dy back to external units
   if (j > 0) {
-    // dy = dy * PRECISION / price_scale_internal
     dy = (dy * PRECISION) / price_scale_internal;
   } else {
-    // dy /= precisions[0]
     dy = dy / precisions[0];
   }
 
-  // Apply dynamic fee
   const fee = dynamicFee(xp_after, feeGamma, midFee, outFee);
   dy = dy - (dy * fee) / FEE_DENOMINATOR;
 
@@ -249,39 +234,25 @@ export function getDy(
 }
 
 /**
- * Find peg point using off-chain CryptoSwap math (binary search)
- * Returns the maximum amount where swap output >= input (rate >= 1:1)
- *
- * @param params Pool parameters
- * @param i Input token index
- * @param j Output token index
- * @param precision Search precision (default 10 tokens worth of wei)
- * @returns Maximum input amount that yields >= 1:1 output
+ * Find peg point for 2-coin pool
  */
 export function findPegPoint(
-  params: CryptoSwapParams,
+  params: TwocryptoParams,
   i: number,
   j: number,
   precision: bigint = 10n * 10n ** 18n
 ): bigint {
-  // Check if even 1 token gives bonus
-  const minAmount = 10n ** 18n; // 1 token
+  const minAmount = 10n ** 18n;
   const dyForMin = getDy(params, i, j, minAmount);
-  if (dyForMin < minAmount) {
-    return 0n;
-  }
+  if (dyForMin < minAmount) return 0n;
 
-  // Upper bound: use total pool TVL as reasonable max
   const maxSwap = params.balances[0] + params.balances[1];
-
-  // Binary search for peg point
   let low = minAmount;
   let high = maxSwap;
 
   while (high - low > precision) {
     const mid = (low + high) / 2n;
     const dy = getDy(params, i, j, mid);
-
     if (dy >= mid) {
       low = mid;
     } else {
@@ -292,11 +263,245 @@ export function findPegPoint(
   return low;
 }
 
+// ============================================
+// Tricrypto (3-coin) Implementation
+// ============================================
+
+/**
+ * Newton's method to find y in 3-coin CryptoSwap invariant
+ * Based on Tricrypto-NG Vyper source
+ *
+ * @param A - Raw A parameter from pool
+ * @param gamma - gamma parameter
+ * @param x - scaled balances [x0, x1, x2]
+ * @param D - invariant D
+ * @param i - index of the output token (the one we're solving for)
+ */
+export function newtonY3(
+  A: bigint,
+  gamma: bigint,
+  x: [bigint, bigint, bigint],
+  D: bigint,
+  i: number
+): bigint {
+  const N_COINS = 3n;
+  const N_COINS_POW = 27n; // 3^3
+
+  // Sum and product of other balances (excluding i)
+  let S = 0n;
+  let prod = PRECISION;
+  for (let k = 0; k < 3; k++) {
+    if (k !== i) {
+      S += x[k];
+      prod = (prod * x[k]) / PRECISION;
+    }
+  }
+
+  // Initial guess: y = D^3 / (N^N * prod(x_k for k != i))
+  let y = (((D * D) / prod) * D) / (N_COINS_POW * PRECISION);
+
+  // K0_i = (10^18 * N^(N-1)) * prod(x_k for k != i) / D^(N-1)
+  // For N=3: K0_i = 9 * 10^18 * prod / D^2
+  const K0_i = (PRECISION * 9n * prod) / ((D * D) / PRECISION);
+
+  // Convergence limit
+  const convergence_limit = (() => {
+    let max_val = D / (10n ** 14n);
+    for (let k = 0; k < 3; k++) {
+      if (k !== i) {
+        const val = x[k] / (10n ** 14n);
+        if (val > max_val) max_val = val;
+      }
+    }
+    if (max_val < 100n) max_val = 100n;
+    return max_val;
+  })();
+
+  for (let j = 0; j < MAX_ITERATIONS; j++) {
+    const y_prev = y;
+
+    // K0 = K0_i * y * N / D
+    const K0 = (K0_i * y * N_COINS) / D;
+
+    // S_total = S + y
+    const S_total = S + y;
+
+    // _g1k0 = |gamma + 10^18 - K0| + 1
+    let _g1k0 = gamma + PRECISION;
+    if (_g1k0 > K0) {
+      _g1k0 = _g1k0 - K0 + 1n;
+    } else {
+      _g1k0 = K0 - _g1k0 + 1n;
+    }
+
+    // mul1 = 10^18 * D / gamma * _g1k0 / gamma * _g1k0 * A_MULTIPLIER / A
+    const mul1 =
+      (((((PRECISION * D) / gamma) * _g1k0) / gamma) * _g1k0 * A_MULTIPLIER) / A;
+
+    // mul2 = 10^18 + (2 * 10^18) * K0 / _g1k0
+    const mul2 = PRECISION + (2n * PRECISION * K0) / _g1k0;
+
+    const yfprime_base = PRECISION * y + S_total * mul2 + mul1;
+    const _dyfprime = D * mul2;
+
+    let yfprime: bigint;
+    if (yfprime_base < _dyfprime) {
+      y = y_prev / 2n;
+      continue;
+    } else {
+      yfprime = yfprime_base - _dyfprime;
+    }
+
+    const fprime = yfprime / y;
+    const y_minus_base = mul1 / fprime;
+    const y_plus =
+      (yfprime + PRECISION * D) / fprime + (y_minus_base * PRECISION) / K0;
+    const y_minus = y_minus_base + (PRECISION * S_total) / fprime;
+
+    if (y_plus < y_minus) {
+      y = y_prev / 2n;
+    } else {
+      y = y_plus - y_minus;
+    }
+
+    const diff = y > y_prev ? y - y_prev : y_prev - y;
+    const threshold = y / (10n ** 14n);
+    if (diff < (convergence_limit > threshold ? convergence_limit : threshold)) {
+      return y;
+    }
+  }
+
+  return y;
+}
+
+/**
+ * Calculate dynamic fee for 3-coin CryptoSwap pool
+ */
+export function dynamicFee3(
+  xp: [bigint, bigint, bigint],
+  feeGamma: bigint,
+  midFee: bigint,
+  outFee: bigint
+): bigint {
+  const N_COINS = 3n;
+  const N_COINS_POW = 27n;
+
+  const sum = xp[0] + xp[1] + xp[2];
+  if (sum === 0n) return midFee;
+
+  // K = (10^18 * N^N) * prod(xp) / sum^N
+  let K = PRECISION * N_COINS_POW;
+  for (const x of xp) {
+    K = (K * x) / sum;
+  }
+
+  const f = (feeGamma * PRECISION) / (feeGamma + PRECISION - K);
+  return (midFee * f + outFee * (PRECISION - f)) / PRECISION;
+}
+
+/**
+ * Scale 3-coin balances to internal units
+ */
+export function scaleBalances3(
+  balances: [bigint, bigint, bigint],
+  precisions: [bigint, bigint, bigint],
+  priceScales: [bigint, bigint]
+): [bigint, bigint, bigint] {
+  return [
+    balances[0] * precisions[0],
+    (balances[1] * precisions[1] * priceScales[0]) / PRECISION,
+    (balances[2] * precisions[2] * priceScales[1]) / PRECISION,
+  ];
+}
+
+/**
+ * Off-chain implementation of Tricrypto get_dy
+ */
+export function getDy3(
+  params: TricryptoParams,
+  i: number,
+  j: number,
+  dx: bigint
+): bigint {
+  if (dx === 0n) return 0n;
+
+  const { A, gamma, D, midFee, outFee, feeGamma, priceScales, balances } = params;
+  const precisions = params.precisions ?? [1n, 1n, 1n];
+
+  // Add dx to input token BEFORE scaling
+  const xp_unscaled: [bigint, bigint, bigint] = [...balances];
+  xp_unscaled[i] = xp_unscaled[i] + dx;
+
+  // Scale to internal units
+  const xp = scaleBalances3(xp_unscaled, precisions, priceScales);
+
+  // Newton's method to find new y
+  const y = newtonY3(A, gamma, xp, D, j);
+
+  // dy = xp[j] - y - 1
+  let dy = xp[j] - y - 1n;
+  if (dy < 0n) return 0n;
+
+  // Update xp[j] for fee calculation
+  const xp_after: [bigint, bigint, bigint] = [...xp];
+  xp_after[j] = y;
+
+  // Convert dy back to external units
+  if (j === 0) {
+    dy = dy / precisions[0];
+  } else if (j === 1) {
+    dy = (dy * PRECISION) / (precisions[1] * priceScales[0]);
+  } else {
+    dy = (dy * PRECISION) / (precisions[2] * priceScales[1]);
+  }
+
+  // Apply dynamic fee
+  const fee = dynamicFee3(xp_after, feeGamma, midFee, outFee);
+  dy = dy - (dy * fee) / FEE_DENOMINATOR;
+
+  return dy;
+}
+
+/**
+ * Find peg point for 3-coin pool
+ */
+export function findPegPoint3(
+  params: TricryptoParams,
+  i: number,
+  j: number,
+  precision: bigint = 10n * 10n ** 18n
+): bigint {
+  const minAmount = 10n ** 18n;
+  const dyForMin = getDy3(params, i, j, minAmount);
+  if (dyForMin < minAmount) return 0n;
+
+  let maxSwap = 0n;
+  for (const bal of params.balances) {
+    maxSwap += bal;
+  }
+
+  let low = minAmount;
+  let high = maxSwap;
+
+  while (high - low > precision) {
+    const mid = (low + high) / 2n;
+    const dy = getDy3(params, i, j, mid);
+    if (dy >= mid) {
+      low = mid;
+    } else {
+      high = mid;
+    }
+  }
+
+  return low;
+}
+
+// ============================================
+// Utility Functions
+// ============================================
+
 /**
  * Calculate min output with slippage tolerance
- * @param expectedOutput - Expected output from getDy
- * @param slippageBps - Slippage in basis points (100 = 1%)
- * @returns min_dy value accounting for slippage
  */
 export function calculateMinDy(expectedOutput: bigint, slippageBps: number): string {
   const minDy = (expectedOutput * BigInt(10000 - slippageBps)) / BigInt(10000);
@@ -304,14 +509,21 @@ export function calculateMinDy(expectedOutput: bigint, slippageBps: number): str
 }
 
 /**
- * Create default precisions for 18-decimal tokens
+ * Create default precisions for 18-decimal tokens (2-coin)
  */
 export function defaultPrecisions(): [bigint, bigint] {
   return [1n, 1n];
 }
 
 /**
- * Scale balances to internal units
+ * Create default precisions for 18-decimal tokens (3-coin)
+ */
+export function defaultPrecisions3(): [bigint, bigint, bigint] {
+  return [1n, 1n, 1n];
+}
+
+/**
+ * Scale 2-coin balances to internal units
  */
 export function scaleBalances(
   balances: [bigint, bigint],

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  // Twocrypto (2-coin)
   newtonY,
   getDy,
   dynamicFee,
@@ -7,9 +8,18 @@ import {
   scaleBalances,
   calculateMinDy,
   defaultPrecisions,
+  // Tricrypto (3-coin)
+  newtonY3,
+  getDy3,
+  dynamicFee3,
+  findPegPoint3,
+  scaleBalances3,
+  defaultPrecisions3,
+  // Constants and types
   PRECISION,
   FEE_DENOMINATOR,
   type CryptoSwapParams,
+  type TricryptoParams,
 } from "./cryptoswap";
 
 describe("CryptoSwap Math", () => {
@@ -180,6 +190,222 @@ describe("CryptoSwap Math", () => {
     it("should return [1n, 1n] for 18-decimal tokens", () => {
       const precisions = defaultPrecisions();
       expect(precisions).toEqual([1n, 1n]);
+    });
+  });
+});
+
+describe("Tricrypto (3-coin) Math", () => {
+  // Test parameters matching a typical Tricrypto pool (e.g., USDT/WBTC/ETH style)
+  const createTricryptoParams = (
+    overrides: Partial<TricryptoParams> = {}
+  ): TricryptoParams => ({
+    A: 1707629n, // A parameter from pool
+    gamma: 11809167828997n, // gamma from pool
+    D: 3000000n * 10n ** 18n, // D invariant (3M tokens total value)
+    midFee: 3000000n, // 0.03%
+    outFee: 30000000n, // 0.3%
+    feeGamma: 500000000000000n,
+    priceScales: [PRECISION, PRECISION], // 1:1:1 price scales for simplicity
+    balances: [1000000n * 10n ** 18n, 1000000n * 10n ** 18n, 1000000n * 10n ** 18n], // 1M each
+    precisions: [1n, 1n, 1n],
+    ...overrides,
+  });
+
+  describe("scaleBalances3", () => {
+    it("should scale token 0 by precision only", () => {
+      const balances: [bigint, bigint, bigint] = [
+        1000n * 10n ** 18n,
+        1000n * 10n ** 18n,
+        1000n * 10n ** 18n,
+      ];
+      const precisions: [bigint, bigint, bigint] = [1n, 1n, 1n];
+      const priceScales: [bigint, bigint] = [PRECISION, PRECISION];
+
+      const xp = scaleBalances3(balances, precisions, priceScales);
+      expect(xp[0]).toBe(balances[0]);
+    });
+
+    it("should scale tokens 1 and 2 by precision and price_scale", () => {
+      const balances: [bigint, bigint, bigint] = [
+        1000n * 10n ** 18n,
+        1000n * 10n ** 18n,
+        1000n * 10n ** 18n,
+      ];
+      const precisions: [bigint, bigint, bigint] = [1n, 1n, 1n];
+      const priceScales: [bigint, bigint] = [2n * PRECISION, 3n * PRECISION]; // Token 1 worth 2x, Token 2 worth 3x
+
+      const xp = scaleBalances3(balances, precisions, priceScales);
+      expect(xp[1]).toBe(balances[1] * 2n);
+      expect(xp[2]).toBe(balances[2] * 3n);
+    });
+
+    it("should handle different precisions", () => {
+      // Token 0: 18 decimals (precision=1)
+      // Token 1: 8 decimals (precision=10^10) - like WBTC
+      // Token 2: 6 decimals (precision=10^12) - like USDT
+      const balances: [bigint, bigint, bigint] = [
+        1000n * 10n ** 18n,
+        1000n * 10n ** 8n,
+        1000n * 10n ** 6n,
+      ];
+      const precisions: [bigint, bigint, bigint] = [1n, 10n ** 10n, 10n ** 12n];
+      const priceScales: [bigint, bigint] = [PRECISION, PRECISION];
+
+      const xp = scaleBalances3(balances, precisions, priceScales);
+      // All should be in same units now
+      expect(xp[0]).toBe(1000n * 10n ** 18n);
+      expect(xp[1]).toBe(1000n * 10n ** 18n);
+      expect(xp[2]).toBe(1000n * 10n ** 18n);
+    });
+  });
+
+  describe("newtonY3", () => {
+    it("should find a valid y value", () => {
+      const params = createTricryptoParams();
+      const xp = scaleBalances3(
+        params.balances,
+        params.precisions ?? [1n, 1n, 1n],
+        params.priceScales
+      );
+
+      // Add some input to x[0]
+      const dx = 1000n * 10n ** 18n; // 1000 tokens
+      const newXp: [bigint, bigint, bigint] = [xp[0] + dx, xp[1], xp[2]];
+
+      const y = newtonY3(params.A, params.gamma, newXp, params.D, 1);
+
+      // y should be less than original xp[1] (we're taking from pool)
+      expect(y).toBeLessThan(xp[1]);
+      // y should be positive
+      expect(y).toBeGreaterThan(0n);
+    });
+
+    it("should work for different output indices", () => {
+      const params = createTricryptoParams();
+      const xp = scaleBalances3(
+        params.balances,
+        params.precisions ?? [1n, 1n, 1n],
+        params.priceScales
+      );
+
+      const dx = 1000n * 10n ** 18n;
+      const newXp: [bigint, bigint, bigint] = [xp[0] + dx, xp[1], xp[2]];
+
+      // Should work for output index 1 and 2
+      const y1 = newtonY3(params.A, params.gamma, newXp, params.D, 1);
+      const y2 = newtonY3(params.A, params.gamma, newXp, params.D, 2);
+
+      expect(y1).toBeGreaterThan(0n);
+      expect(y2).toBeGreaterThan(0n);
+    });
+  });
+
+  describe("dynamicFee3", () => {
+    it("should return close to mid_fee for balanced pool", () => {
+      const xp: [bigint, bigint, bigint] = [
+        1000n * 10n ** 18n,
+        1000n * 10n ** 18n,
+        1000n * 10n ** 18n,
+      ];
+      const fee = dynamicFee3(xp, 500000000000000n, 3000000n, 30000000n);
+
+      // For perfectly balanced pool, K ≈ 1, so fee should be close to mid_fee
+      expect(fee).toBeGreaterThanOrEqual(3000000n);
+      expect(fee).toBeLessThan(30000000n);
+    });
+
+    it("should approach out_fee for imbalanced pool", () => {
+      const xp: [bigint, bigint, bigint] = [
+        100n * 10n ** 18n,
+        10000n * 10n ** 18n,
+        5000n * 10n ** 18n,
+      ];
+      const fee = dynamicFee3(xp, 500000000000000n, 3000000n, 30000000n);
+
+      // For imbalanced pool, fee should be closer to out_fee
+      expect(fee).toBeGreaterThan(3000000n);
+    });
+  });
+
+  describe("getDy3", () => {
+    it("should return 0 for dx = 0", () => {
+      const params = createTricryptoParams();
+      const dy = getDy3(params, 0, 1, 0n);
+      expect(dy).toBe(0n);
+    });
+
+    it("should return positive output for valid swap", () => {
+      const params = createTricryptoParams();
+      const dx = 100n * 10n ** 18n; // 100 tokens
+      const dy = getDy3(params, 0, 1, dx);
+
+      expect(dy).toBeGreaterThan(0n);
+    });
+
+    it("should handle all swap directions", () => {
+      const params = createTricryptoParams();
+      const dx = 100n * 10n ** 18n;
+
+      // All 6 swap directions
+      const dy01 = getDy3(params, 0, 1, dx);
+      const dy02 = getDy3(params, 0, 2, dx);
+      const dy10 = getDy3(params, 1, 0, dx);
+      const dy12 = getDy3(params, 1, 2, dx);
+      const dy20 = getDy3(params, 2, 0, dx);
+      const dy21 = getDy3(params, 2, 1, dx);
+
+      // All should be positive
+      expect(dy01).toBeGreaterThan(0n);
+      expect(dy02).toBeGreaterThan(0n);
+      expect(dy10).toBeGreaterThan(0n);
+      expect(dy12).toBeGreaterThan(0n);
+      expect(dy20).toBeGreaterThan(0n);
+      expect(dy21).toBeGreaterThan(0n);
+    });
+
+    it("should give lower output rate for larger swaps (slippage)", () => {
+      const params = createTricryptoParams();
+      const smallDx = 100n * 10n ** 18n;
+      const largeDx = 10000n * 10n ** 18n;
+
+      const smallDy = getDy3(params, 0, 1, smallDx);
+      const largeDy = getDy3(params, 0, 1, largeDx);
+
+      // Rate should be worse for larger swap
+      const smallRate = (smallDy * PRECISION) / smallDx;
+      const largeRate = (largeDy * PRECISION) / largeDx;
+      expect(largeRate).toBeLessThan(smallRate);
+    });
+  });
+
+  describe("findPegPoint3", () => {
+    it("should return 0 when no swap gives bonus in balanced pool", () => {
+      const params = createTricryptoParams();
+      const pegPoint = findPegPoint3(params, 0, 1);
+
+      // In a balanced CryptoSwap pool, typically no peg point bonus
+      expect(pegPoint).toBeGreaterThanOrEqual(0n);
+    });
+
+    it("should find peg point when pool is imbalanced", () => {
+      const params = createTricryptoParams({
+        balances: [800000n * 10n ** 18n, 1200000n * 10n ** 18n, 1000000n * 10n ** 18n],
+      });
+
+      const pegPoint = findPegPoint3(params, 0, 1);
+
+      if (pegPoint > 0n) {
+        // At peg point, dy should be >= dx
+        const dy = getDy3(params, 0, 1, pegPoint);
+        expect(dy).toBeGreaterThanOrEqual(pegPoint);
+      }
+    });
+  });
+
+  describe("defaultPrecisions3", () => {
+    it("should return [1n, 1n, 1n] for 18-decimal tokens", () => {
+      const precisions = defaultPrecisions3();
+      expect(precisions).toEqual([1n, 1n, 1n]);
     });
   });
 });

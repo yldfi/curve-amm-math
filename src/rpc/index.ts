@@ -20,7 +20,7 @@
  */
 
 import type { StableSwapPoolParams } from "../stableswap";
-import type { CryptoSwapParams } from "../cryptoswap";
+import type { CryptoSwapParams, TricryptoParams } from "../cryptoswap";
 import { A_PRECISION } from "../stableswap";
 
 // Function selectors (4-byte function signatures)
@@ -249,6 +249,51 @@ export async function getCryptoSwapParams(
     priceScale: results[8] ?? 10n ** 18n,
     balances: [results[0] ?? 0n, results[1] ?? 0n],
     precisions: precisions ?? [1n, 1n],
+  };
+}
+
+/**
+ * Fetch Tricrypto (3-coin) pool parameters in a single batched call
+ *
+ * @param rpcUrl - JSON-RPC endpoint URL
+ * @param poolAddress - Pool contract address
+ * @param precisions - Token precisions (default [1n, 1n, 1n] for 18-decimal tokens)
+ * @returns Pool parameters for off-chain calculations
+ */
+export async function getTricryptoParams(
+  rpcUrl: string,
+  poolAddress: string,
+  precisions?: [bigint, bigint, bigint]
+): Promise<TricryptoParams> {
+  const calls: RpcCall[] = [
+    // Balances (3 coins)
+    { to: poolAddress, data: buildBalancesCalldata(0) },
+    { to: poolAddress, data: buildBalancesCalldata(1) },
+    { to: poolAddress, data: buildBalancesCalldata(2) },
+    // Core params
+    { to: poolAddress, data: SELECTORS.A },
+    { to: poolAddress, data: SELECTORS.GAMMA },
+    { to: poolAddress, data: SELECTORS.D },
+    { to: poolAddress, data: SELECTORS.MID_FEE },
+    { to: poolAddress, data: SELECTORS.OUT_FEE },
+    { to: poolAddress, data: SELECTORS.FEE_GAMMA },
+    // Price scales (2 for 3 coins: tokens 1 and 2 relative to token 0)
+    { to: poolAddress, data: buildPriceScaleCalldata(0) },
+    { to: poolAddress, data: buildPriceScaleCalldata(1) },
+  ];
+
+  const results = await batchRpcCalls(rpcUrl, calls);
+
+  return {
+    A: results[3] ?? 0n,
+    gamma: results[4] ?? 0n,
+    D: results[5] ?? 0n,
+    midFee: results[6] ?? 0n,
+    outFee: results[7] ?? 0n,
+    feeGamma: results[8] ?? 0n,
+    priceScales: [results[9] ?? 10n ** 18n, results[10] ?? 10n ** 18n],
+    balances: [results[0] ?? 0n, results[1] ?? 0n, results[2] ?? 0n],
+    precisions: precisions ?? [1n, 1n, 1n],
   };
 }
 
