@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.0.0 (2026-01-09)
+
+
+### Features
+
+* enhance RPC module with batch operations and validation ([ca982b1](https://github.com/michaeldim/curve-amm-math/commit/ca982b14039f20208c9b23a8de62ca5c70143be2))
+* harden math functions for production use ([1b07458](https://github.com/michaeldim/curve-amm-math/commit/1b07458ca7a337efafbb31cc1aad503f898ecb4d))
+* refactor for DRY, add tests, CI/CD and code quality tools ([6a003d8](https://github.com/michaeldim/curve-amm-math/commit/6a003d87123cc8a2e2aba002a4cf0eafca4a547b))
+
+
+### Bug Fixes
+
+* adjust coverage thresholds to match actual coverage ([f636b9c](https://github.com/michaeldim/curve-amm-math/commit/f636b9cda1113952990d68eb2bb7e76ed0a3bedc))
+
 ## [0.1.0] - 2026-01-08
 
 ### Added
