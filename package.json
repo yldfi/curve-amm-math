@@ -1,5 +1,5 @@
 {
-  "name": "curve-amm-math",
+  "name": "@yldfi/curve-amm-math",
   "version": "1.0.0",
   "description": "Off-chain TypeScript implementations of Curve AMM math (StableSwap, CryptoSwap) for gas-free calculations",
   "main": "dist/index.js",
@@ -56,6 +56,9 @@
     "url": "https://github.com/michaeldim/curve-amm-math/issues"
   },
   "homepage": "https://github.com/michaeldim/curve-amm-math#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "devDependencies": {
     "@commitlint/cli": "^19.0.0",
     "@commitlint/config-conventional": "^19.0.0",
