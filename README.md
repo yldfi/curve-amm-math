@@ -8,11 +8,13 @@ Off-chain TypeScript implementations of Curve AMM math for gas-free calculations
 ## Features
 
 - **StableSwap math** - For pegged asset pools (stablecoins, liquid staking tokens)
+- **Exact precision mode** - Match on-chain results within ±1 wei for all StableSwap pool types
 - **CryptoSwap math** - For volatile asset pairs (Twocrypto-NG, Tricrypto-NG)
 - **Zero dependencies** - Pure TypeScript with native BigInt
 - **Browser compatible** - Works in Node.js and browsers (ES2020+)
-- **Optional RPC utilities** - Fetch pool parameters via JSON-RPC (requires `viem`)
+- **Optional RPC utilities** - Fetch pool parameters via JSON-RPC
 - **Generalized for N coins** - Works with 2-8 coin StableSwap, 2-3 coin CryptoSwap
+- **All asset types** - Supports oracle tokens (wstETH), ERC4626 (sDAI), rebasing tokens (stETH)
 
 ## Installation
 
@@ -99,6 +101,69 @@ const dy3 = cryptoswap.getDy3(params3, 0, 1, 10n * 10n**18n);
 const lpPrice3 = cryptoswap.lpPrice3(params3, totalSupply);
 ```
 
+### Exact Precision Mode (stableswapExact)
+
+For applications requiring exact on-chain matching (±1 wei), use the exact precision module.
+This replicates Vyper's exact operation order and handles all asset types correctly.
+
+**stableswap vs stableswapExact:**
+
+| Aspect | `stableswap` | `stableswapExact` |
+|--------|--------------|-------------------|
+| **Precision** | ~0.01% tolerance | ±1 wei exact |
+| **Balances** | Normalized to 18 decimals | Native token decimals |
+| **Rates** | Computed internally | Must provide explicitly |
+| **Use case** | UI quotes, simulations | Aggregators, MEV, exact matching |
+| **Complexity** | Simple | Requires rate handling |
+
+**When to use exact precision:**
+- Building aggregators or MEV bots where precision matters
+- Pools with oracle tokens (wstETH, cbETH) or ERC4626 tokens (sDAI)
+- When standard stableswap gives ~0.01% difference and you need exact
+
+```typescript
+import { stableswapExact } from 'curve-amm-math';
+
+// For standard ERC20 tokens, compute rates from decimals
+// rates = 10^(36 - decimals) for each token
+const decimals = [18, 6, 6];  // DAI, USDC, USDT
+const rates = stableswapExact.computeRates(decimals);
+
+const params: stableswapExact.ExactPoolParams = {
+  balances: [1000000n * 10n**18n, 1000000n * 10n**6n, 1000000n * 10n**6n],  // Native decimals
+  rates,                              // Rate multipliers (10^36 / 10^decimals)
+  A: 2000n,                           // Raw A from contract (NOT multiplied by A_PRECISION)
+  fee: 1000000n,                      // 0.01% in 1e10 precision
+  offpegFeeMultiplier: 20000000000n,  // 2x multiplier
+};
+
+// Swap 1000 DAI -> USDC (input in native decimals)
+const dy = stableswapExact.getDyExact(0, 1, 1000n * 10n**18n, params);
+// Returns USDC amount in native 6 decimals
+
+// Reverse: how much DAI needed for 1000 USDC out?
+const dx = stableswapExact.getDxExact(0, 1, 1000n * 10n**6n, params);
+```
+
+**For pools with oracle/ERC4626 tokens**, fetch rates from the contract:
+
+```typescript
+import { stableswapExact } from 'curve-amm-math';
+import { getExactStableSwapParams } from 'curve-amm-math/rpc';
+
+// Fetch params including dynamic rates from stored_rates()
+const params = await getExactStableSwapParams(rpcUrl, poolAddress);
+
+// Use directly with exact precision functions
+const dy = stableswapExact.getDyExact(0, 1, dx, {
+  balances: params.balances,
+  rates: params.rates,  // Includes oracle adjustments
+  A: params.A,
+  fee: params.fee,
+  offpegFeeMultiplier: params.offpegFeeMultiplier,
+});
+```
+
 ### RPC Utilities (optional)
 
 ```typescript
@@ -162,6 +227,44 @@ const dyOnChain = await getOnChainDy(rpcUrl, poolAddress, 0, 1, 10n * 10n**18n);
 | `getAmountOut(i, j, dx, poolParams)` | Simplified output calculation |
 | `getAmountIn(i, j, dy, poolParams)` | Simplified input calculation |
 
+### StableSwapExact - Exact Precision Functions
+
+Use these for ±1 wei on-chain matching. All inputs/outputs use **native token decimals**.
+
+| Function | Description |
+|----------|-------------|
+| `getDyExact(i, j, dx, params)` | Exact swap output (native decimals) |
+| `getDxExact(i, j, dy, params)` | Exact input needed (native decimals) |
+| `getD(xp, amp, nCoins)` | Invariant D (Vyper-exact) |
+| `getY(i, j, x, xp, amp, D, nCoins)` | Newton's method for Y (exact) |
+| `getYD(amp, i, xp, D, nCoins)` | Y given D for liquidity ops |
+| `dynamicFee(xpi, xpj, fee, feeMultiplier)` | Dynamic fee calculation |
+| `getXp(balances, rates)` | Convert to normalized balances |
+| `computeRates(decimals)` | Compute rates from decimals array |
+| `computePrecisions(decimals)` | Compute precision multipliers |
+| `createExactParams(balances, decimals, A, fee, offpegFeeMultiplier?)` | Helper to create params |
+| `createExactParamsWithRates(balances, rates, A, fee, offpegFeeMultiplier?)` | Create params with custom rates |
+
+**ExactPoolParams Interface:**
+```typescript
+interface ExactPoolParams {
+  balances: bigint[];    // Raw balances in native token decimals
+  rates: bigint[];       // Rate multipliers: 10^(36 - decimals) or from stored_rates()
+  A: bigint;             // Raw A parameter (NOT multiplied by A_PRECISION)
+  fee: bigint;           // Base fee (1e10 precision, e.g., 4000000 = 0.04%)
+  offpegFeeMultiplier: bigint;  // Off-peg multiplier (1e10 precision, 0 if not supported)
+}
+```
+
+**Asset Type Rate Sources:**
+
+| Asset Type | Example | Rate Source |
+|------------|---------|-------------|
+| Standard ERC20 | USDC, DAI | `computeRates([decimals])` → `10^(36-d)` |
+| Oracle token | wstETH, cbETH | `stored_rates()` from contract |
+| ERC4626 vault | sDAI | `stored_rates()` (includes convertToAssets) |
+| Rebasing token | stETH | `stored_rates()` (rate static, balance changes) |
+
 ### CryptoSwap - Core Functions (2-coin)
 
 | Function | Description |
@@ -199,9 +302,16 @@ const dyOnChain = await getOnChainDy(rpcUrl, poolAddress, 0, 1, 10n * 10n**18n);
 
 | Function | Description |
 |----------|-------------|
-| `getStableSwapParams(rpcUrl, pool, nCoins?)` | Fetch StableSwap pool params |
-| `getCryptoSwapParams(rpcUrl, pool, nCoins?, precisions?)` | Fetch CryptoSwap pool params |
+| `getStableSwapParams(rpcUrl, pool, nCoins?, options?)` | Fetch StableSwap pool params |
+| `getExactStableSwapParams(rpcUrl, pool)` | Fetch exact precision params with stored_rates() |
+| `getCryptoSwapParams(rpcUrl, pool, precisions?)` | Fetch CryptoSwap 2-coin params |
+| `getTricryptoParams(rpcUrl, pool, precisions?)` | Fetch Tricrypto 3-coin params |
 | `getOnChainDy(rpcUrl, pool, i, j, dx, factory?)` | On-chain get_dy for verification |
+| `getStoredRates(rpcUrl, pool)` | Fetch dynamic rates for oracle/ERC4626 tokens |
+| `getNCoins(rpcUrl, pool)` | Get number of coins in pool |
+| `getPoolCoins(rpcUrl, pool, nCoins?)` | Get token addresses |
+| `getTokenDecimals(rpcUrl, tokens)` | Get decimals for tokens |
+| `previewRedeem(rpcUrl, vault, shares)` | ERC4626 preview redeem |
 | `batchRpcCalls(rpcUrl, calls)` | Batched eth_call requests |
 
 ## Testing Accuracy
@@ -228,12 +338,13 @@ console.assert(diff <= tolerance, 'Off-chain calculation exceeds tolerance');
 
 ## Pool Type Reference
 
-| Pool Type | Factory ID | Math Module | Coins |
-|-----------|------------|-------------|-------|
-| StableSwap (legacy) | Registry | `stableswap` | 2-4 |
-| StableSwapNG | 12 | `stableswap` | 2-8 |
-| Twocrypto-NG | 13 | `cryptoswap` | 2 |
-| Tricrypto-NG | 11 | `cryptoswap` | 3 |
+| Pool Type | Factory ID | Math Module | Exact Module | Coins |
+|-----------|------------|-------------|--------------|-------|
+| StableSwap (legacy) | Registry | `stableswap` | `stableswapExact` | 2-4 |
+| StableSwapNG | 12 | `stableswap` | `stableswapExact` | 2-8 |
+| StableSwapNG (oracle) | 12 | `stableswap` | `stableswapExact` + `stored_rates()` | 2-8 |
+| Twocrypto-NG | 13 | `cryptoswap` | - | 2 |
+| Tricrypto-NG | 11 | `cryptoswap` | - | 3 |
 
 ## References
 
