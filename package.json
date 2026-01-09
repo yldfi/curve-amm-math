@@ -1,7 +1,7 @@
 {
   "name": "@yldfi/curve-amm-math",
   "version": "1.0.0",
-  "description": "Off-chain TypeScript implementations of Curve AMM math (StableSwap, CryptoSwap) for gas-free calculations",
+  "description": "Off-chain TypeScript implementations of Curve AMM math (StableSwap, CryptoSwap) for local quote calculations",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
