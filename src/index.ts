@@ -65,7 +65,12 @@ export type { StableSwapPoolParams } from "./stableswap";
 
 // Exact precision StableSwap (matches on-chain within ±1 unit)
 export * as stableswapExact from "./stableswap-exact";
-export type { ExactPoolParams } from "./stableswap-exact";
+export type {
+  ExactPoolParams,
+  StableLiquidityParams,
+  StableLiquidityResult,
+  StableSwapVariant,
+} from "./stableswap-exact";
 
 // CryptoSwap math (for volatile asset pairs)
 // Supports both Twocrypto-NG (2 coins) and Tricrypto-NG (3 coins)
@@ -87,6 +92,10 @@ export type { TwocryptoOptimizedParams } from "./twocrypto-optimized";
 // Tricrypto-NG pools (CurveTricryptoOptimizedWETH v2.0.0), exact
 export * as tricryptoNg from "./tricrypto-ng";
 export type { TricryptoNgParams } from "./tricrypto-ng";
+
+// Fee-free marginal rates and pool-spot LP valuation (StableSwap, CryptoSwap)
+export * as spot from "./spot";
+export type { Ratio, CryptoSpotState } from "./spot";
 
 // YieldBasis virtual pool math (stablecoin <-> asset via YieldBasis AMM)
 export * as yieldbasis from "./yieldbasis";
