@@ -1,5 +1,5 @@
 {
- "description": "Pools captured mid A/gamma ramp (future ramp time after the block timestamp). Tricrypto-NG and CurveCryptoSwap2 views re-solve D while ramping; NG StableSwap views use A() * A_PRECISION while pools use A_precise().",
+ "description": "Pools captured mid A/gamma ramp (future ramp time after the block timestamp). Tricrypto-NG and CurveCryptoSwap2 views re-solve D while ramping; NG StableSwap views use A() * A_PRECISION while pools use A_precise(). twocryptoOptimizedFork: no CurveTwocryptoMathOptimized pool has ever ramped on mainnet, so this one comes from an anvil mainnet fork where the factory admin started a ramp on OGN/OETH (v2.1.0) and time was advanced to mid-ramp; the values are the deployed contracts' own views.",
  "tricryptoNg": [
   {
    "name": "TryLSD",
@@ -1356,6 +1356,176 @@
     "i": 1,
     "amount_i": "8494845152156351243083",
     "result": "29939157278020920237639"
+   }
+  ]
+ },
+ "twocryptoOptimizedFork": {
+  "name": "OGN/OETH forked mid-ramp",
+  "pool": "0x56a344f1aa03943f536b94436de6a6e10116cf86",
+  "note": "anvil fork of mainnet; factory admin called ramp_A_gamma(2*A, gamma, now + 2 days), then time advanced 1 day",
+  "A": "600013",
+  "gamma": "150000000000000",
+  "D": "52995972061525921181802591",
+  "mid_fee": "26000000",
+  "out_fee": "45000000",
+  "fee_gamma": "230000000000000",
+  "fee": "40909071",
+  "totalSupply": "75629676682189432878401",
+  "get_virtual_price": "1025996496479517441",
+  "price_scale": "116613677265679602875862",
+  "future_A_gamma_time": "1791461411",
+  "last_timestamp": "1791287687",
+  "blockTimestamp": "1791375023",
+  "version": "v2.1.0",
+  "MATH": "0x1fd8af16dc4bebd950521308d55d0543b6cdf4a1",
+  "balances": [
+   "27270324158164329655925744",
+   "220691908549337933788"
+  ],
+  "precisions": [
+   "1",
+   "1"
+  ],
+  "get_dy": [
+   {
+    "i": 0,
+    "j": 1,
+    "dx": "272703241581643296559",
+    "result": "2246587529346132"
+   },
+   {
+    "i": 0,
+    "j": 1,
+    "dx": "272703241581643296559257",
+    "result": "2221220575963360053"
+   },
+   {
+    "i": 0,
+    "j": 1,
+    "dx": "2727032415816432965592574",
+    "result": "20270105589512441125"
+   },
+   {
+    "i": 1,
+    "j": 0,
+    "dx": "2206919085493379",
+    "result": "265694814206030325328"
+   },
+   {
+    "i": 1,
+    "j": 0,
+    "dx": "2206919085493379337",
+    "result": "262950284192851276231759"
+   },
+   {
+    "i": 1,
+    "j": 0,
+    "dx": "22069190854933793378",
+    "result": "2485252459512582752557018"
+   }
+  ],
+  "calc_token_amount": [
+   {
+    "amounts": [
+     "27270324158164329655925",
+     "0"
+    ],
+    "deposit": true,
+    "result": "38140082360992865176"
+   },
+   {
+    "amounts": [
+     "27270324158164329655925",
+     "0"
+    ],
+    "deposit": false,
+    "result": "38161533472336061065"
+   },
+   {
+    "amounts": [
+     "0",
+     "220691908549337933"
+    ],
+    "deposit": true,
+    "result": "37313127209218999714"
+   },
+   {
+    "amounts": [
+     "0",
+     "220691908549337933"
+    ],
+    "deposit": false,
+    "result": "37333740259361034189"
+   },
+   {
+    "amounts": [
+     "2727032415816432965592574",
+     "0"
+    ],
+    "deposit": true,
+    "result": "3716525728885560475021"
+   },
+   {
+    "amounts": [
+     "2727032415816432965592574",
+     "0"
+    ],
+    "deposit": false,
+    "result": "3877582416615768942091"
+   },
+   {
+    "amounts": [
+     "0",
+     "22069190854933793378"
+    ],
+    "deposit": true,
+    "result": "3675173899730133000540"
+   },
+   {
+    "amounts": [
+     "0",
+     "22069190854933793378"
+    ],
+    "deposit": false,
+    "result": "3839633613793645807657"
+   },
+   {
+    "amounts": [
+     "272703241581643296559257",
+     "2206919085493379337"
+    ],
+    "deposit": true,
+    "result": "756244416035324593792"
+   },
+   {
+    "amounts": [
+     "272703241581643296559257",
+     "2206919085493379337"
+    ],
+    "deposit": false,
+    "result": "756244416035324593793"
+   }
+  ],
+  "calc_withdraw_one_coin": [
+   {
+    "tokenAmount": "1000000000000000000",
+    "i": 0,
+    "result": "711870073895882356097"
+   },
+   {
+    "tokenAmount": "1000000000000000000",
+    "i": 1,
+    "result": "5888691545889338"
+   },
+   {
+    "tokenAmount": "3781483834109471643920",
+    "i": 0,
+    "result": "2649950505255866115842355"
+   },
+   {
+    "tokenAmount": "3781483834109471643920",
+    "i": 1,
+    "result": "21650262957327929121"
    }
   ]
  }

@@ -8,6 +8,7 @@ import * as cryptoswap from "./cryptoswap";
 import * as tricryptoNg from "./tricrypto-ng";
 import * as stableswapExact from "./stableswap-exact";
 import * as twocryptoStableswap from "./twocrypto-stableswap";
+import * as twocryptoOptimized from "./twocrypto-optimized";
 import data from "./__fixtures__/ramp-cases.json";
 
 const big = (xs: readonly string[]) => xs.map((x) => BigInt(x));
@@ -172,6 +173,42 @@ describe("Twocrypto on StableswapMath mid-ramp (isRamping)", () => {
     }
     for (const v of c.calc_withdraw_one_coin) {
       expect(twocryptoStableswap.calcWithdrawOneCoin(p, BigInt(v.tokenAmount), v.i)).toBe(BigInt(v.result));
+    }
+  });
+});
+
+describe("twocryptoOptimized mid-ramp (anvil fork of the deployed v2.1.0 pool)", () => {
+  const c = data.twocryptoOptimizedFork;
+  it(c.name, () => {
+    expect(BigInt(c.future_A_gamma_time)).toBeGreaterThan(BigInt(c.blockTimestamp));
+    twocryptoOptimized.assertSupportedImplementation(c.version, c.MATH);
+    const params = (isRamping: boolean): twocryptoOptimized.TwocryptoOptimizedParams => ({
+      A: BigInt(c.A),
+      gamma: BigInt(c.gamma),
+      D: BigInt(c.D),
+      midFee: BigInt(c.mid_fee),
+      outFee: BigInt(c.out_fee),
+      feeGamma: BigInt(c.fee_gamma),
+      priceScale: BigInt(c.price_scale),
+      balances: big(c.balances) as [bigint, bigint],
+      precisions: big(c.precisions) as [bigint, bigint],
+      totalSupply: BigInt(c.totalSupply),
+      isRamping,
+    });
+    const p = params(true);
+    expect(twocryptoOptimized.fee(p)).toBe(BigInt(c.fee));
+    expect(twocryptoOptimized.getVirtualPrice(p)).toBe(BigInt(c.get_virtual_price));
+    for (const v of c.get_dy) {
+      expect(twocryptoOptimized.getDy(p, v.i, v.j, BigInt(v.dx))).toBe(BigInt(v.result));
+      expect(twocryptoOptimized.getDy(params(false), v.i, v.j, BigInt(v.dx))).not.toBe(BigInt(v.result));
+    }
+    for (const v of c.calc_token_amount) {
+      expect(twocryptoOptimized.calcTokenAmount(p, big(v.amounts) as [bigint, bigint], v.deposit)).toBe(
+        BigInt(v.result)
+      );
+    }
+    for (const v of c.calc_withdraw_one_coin) {
+      expect(twocryptoOptimized.calcWithdrawOneCoin(p, BigInt(v.tokenAmount), v.i)).toBe(BigInt(v.result));
     }
   });
 });
