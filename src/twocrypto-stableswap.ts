@@ -18,8 +18,11 @@
  *   `future_A_gamma_time() > last_timestamp()` (the pools' `_is_ramping`).
  * - v3.0.0 pools may route `_fee` through a POLICY contract: when
  *   `POLICY()` is set and its `get_fee(xp)` returns non-zero, that fee
- *   (clamped) replaces the dynamic fee. Pass `policyFee` to model it; without
- *   it the policy is assumed to return 0 (the pool's own fee applies).
+ *   (clamped) replaces the dynamic fee. Pass `policy` (the `POLICY()`
+ *   address). Known policies whose `get_fee` is a pure `return 0`
+ *   ({@link ZERO_FEE_POLICIES}) quote with the pool's own fee; any other
+ *   non-zero policy throws unless `policyFee` models it, so a policy swap
+ *   fails loudly instead of mis-quoting.
  * - Deposits pay an extra "LP spam" fee while donation protection is active
  *   (`donation_protection_expiry_ts() > block.timestamp`); pass `donation`
  *   for exact deposit quotes then.
@@ -48,6 +51,17 @@ export const SUPPORTED_MATH_ADDRESSES: Record<TwocryptoStableswapVersion, string
   "v3.0.0": "0xbfddf58cb6ef84e115ff47c10e49a80b2653ea13",
   "v2.1.0d": "0x79839c2d74531a8222c0f555865aac1834e82e51",
 };
+
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
+/**
+ * POLICY contracts (`YBTwocryptoPolicy`) whose `get_fee(xp)` is
+ * `@pure ... return 0`: the pool's own fee curve applies.
+ */
+export const ZERO_FEE_POLICIES: readonly string[] = [
+  "0x0436c0648afd66de23f86f23cb42884304743efa", // crvUSD/WBTC
+  "0xe99ee179f1cc62d4a1d3e67dd5541ecb63aca396", // crvUSD/tBTC
+];
 
 /**
  * Throws unless the pool is an implementation this module is exact for.
@@ -118,9 +132,15 @@ export interface TwocryptoStableswapParams {
    */
   donation?: TwocryptoDonationState;
   /**
-   * v3.0.0 only: the pool POLICY contract's `get_fee(xp)` (1e10) for the
-   * given scaled balances; return 0 when the policy does not set a fee.
-   * Omit when `POLICY()` is the zero address.
+   * v3.0.0: `pool.POLICY()`. Required for v3.0.0 pools; the zero address or
+   * a {@link ZERO_FEE_POLICIES} entry quotes with the pool's own fee, any
+   * other policy needs `policyFee`.
+   */
+  policy?: string;
+  /**
+   * v3.0.0: the POLICY contract's `get_fee(xp)` (1e10) for the given scaled
+   * balances (0 = use the pool's fee). Needed for policies outside
+   * {@link ZERO_FEE_POLICIES}.
    */
   policyFee?: (xp: readonly [bigint, bigint]) => bigint;
 }
@@ -164,9 +184,19 @@ export function feeCalc(params: TwocryptoStableswapParams, xpIn: readonly [bigin
   const MIN_FEE = FEE_PRECISION / 10n / 10000n;
   const MAX_FEE = FEE_PRECISION;
   const clamp = (f: bigint) => (f < MIN_FEE ? MIN_FEE : f > MAX_FEE ? MAX_FEE : f);
-  if (params.version === "v3.0.0" && params.policyFee) {
-    const policy = params.policyFee(xpIn);
-    if (policy !== 0n) return clamp(policy);
+  if (params.version === "v3.0.0") {
+    if (params.policyFee) {
+      const policy = params.policyFee(xpIn);
+      if (policy !== 0n) return clamp(policy);
+    } else {
+      const policy = params.policy?.toLowerCase();
+      if (policy === undefined) {
+        fail("v3.0.0 pools need `policy` (pool.POLICY()); pass the zero address if none");
+      }
+      if (policy !== ZERO_ADDRESS && !ZERO_FEE_POLICIES.includes(policy)) {
+        fail(`unknown fee POLICY ${policy}: pass policyFee to model its get_fee`);
+      }
+    }
   }
   let B = xpIn[0] + xpIn[1];
   if (B === 0n) fail("zero balances");
