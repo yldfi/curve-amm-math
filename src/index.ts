@@ -2,7 +2,7 @@
  * curve-amm-math
  *
  * Off-chain TypeScript implementations of Curve AMM math for gas-free calculations.
- * Supports StableSwap (2-8 coins), CryptoSwap (2-3 coins), LlamaLend
+ * Supports StableSwap (2-8 coins), CryptoSwap (2-3 coins, classic and NG), LlamaLend
  * LLAMMA, YieldBasis virtual pools, and triCRV/3pool helpers.
  *
  * @example Basic StableSwap usage
@@ -79,6 +79,14 @@ export type {
 // Curve TwocryptoView quotes for pools backed by StableswapMath.
 export * as twocryptoNg from "./twocrypto-ng";
 export type { TwocryptoNgParams } from "./twocrypto-ng";
+
+// Twocrypto-NG pools backed by CurveTwocryptoMathOptimized (v2.1.x), exact
+export * as twocryptoOptimized from "./twocrypto-optimized";
+export type { TwocryptoOptimizedParams } from "./twocrypto-optimized";
+
+// Tricrypto-NG pools (CurveTricryptoOptimizedWETH v2.0.0), exact
+export * as tricryptoNg from "./tricrypto-ng";
+export type { TricryptoNgParams } from "./tricrypto-ng";
 
 // YieldBasis virtual pool math (stablecoin <-> asset via YieldBasis AMM)
 export * as yieldbasis from "./yieldbasis";
