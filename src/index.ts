@@ -81,7 +81,9 @@ export type {
   TricryptoParams,
 } from "./cryptoswap";
 
-// Curve TwocryptoView quotes for pools backed by StableswapMath.
+// Curve TwocryptoView swap quotes for pools backed by StableswapMath (legacy
+// entry point; prefer twocryptoStableswap, which adds the v3.0.0 fee clamp,
+// the POLICY guard and liquidity math).
 export * as twocryptoNg from "./twocrypto-ng";
 export type { TwocryptoNgParams } from "./twocrypto-ng";
 

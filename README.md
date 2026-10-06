@@ -502,6 +502,9 @@ Crypto metapools (`factory-crypto` `metacrypto`: a CurveCryptoSwap2 pool of
 
 ### Twocrypto on StableswapMath (YieldBasis-style pools)
 
+Use `twocryptoStableswap` (not the older swap-only `twocryptoNg`) for these
+pools: only it applies the v3.0.0 fee clamp and the POLICY guard.
+
 `twocryptoStableswap` ports the `Twocrypto` v3.0.0 and v2.1.0d pools whose
 MATH is StableswapMath (crvUSD/WBTC, crvUSD/WETH, crvUSD/cbBTC, …). Set
 `params.version` from `pool.version()`; `assertSupportedImplementation`
