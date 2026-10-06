@@ -414,7 +414,9 @@ Exact (to the wei) ports of each StableSwap family's liquidity functions.
 | `"ng"` | `factory-stable-ng` (`plainstableng`, `plainstableng-old`) | dynamic fee (`offpeg_fee_multiplier`) |
 
 Use `ampPrecision: 1n` only for pools without `A_precise()` (3pool); pass
-`ampPrecise` from `A_precise()` otherwise. Lending pools (cTokens, aTokens,
+`ampPrecise` from `A_precise()` otherwise. Pass `adminFee` from `admin_fee()`
+when you use the post-call `balances` (3pool's is 100%, not the 50% default).
+`getDyVariant(params, i, j, dx)` is the exact `get_dy` for every variant. Lending pools (cTokens, aTokens,
 yTokens) need their current rates supplied in `rates`.
 
 | Function | Description |
@@ -430,7 +432,10 @@ yTokens) need their current rates supplied in `rates`.
 Legacy `calc_token_amount` omits the imbalance fee that `add_liquidity`
 charges; use `calcAddLiquidityExact` for the amount minted.
 
-**Not covered:** metapools (`isMetaPool`).
+**Not covered:** the underlying (zap) paths of crypto metapools
+(`factory-crypto` `metacrypto`; their pool-level math is `cryptoswap`), and
+lending pools' rate accrual (cToken/aToken pools need current rates in
+`rates`).
 
 ### Tricrypto-NG and Twocrypto-NG
 
@@ -457,6 +462,23 @@ v3.0.0) use `twocryptoNg`.
 *stored* (undecayed) price oracle, as `lp_price()` reads it; the
 `price_oracle(k)` view only equals it when `last_prices_timestamp` is the
 current block.
+
+### Metapools
+
+Pool-level metapool math is the `stableswapExact` liquidity API with
+`rates = [10^(36 - decimals0), baseVirtualPrice]` (`"legacy"` for `main` and
+`factory` v1 metapools) or `stored_rates()` (`"ng"` for stable-ng metapools).
+`baseVirtualPrice` is the base pool's live `get_virtual_price()`, except old
+`main` metapools while their 10-minute cache (`base_virtual_price()`,
+`base_cache_updated()`) is fresh. The `metapool` module adds the paths that
+go through the base pool:
+
+| Function | Description |
+|----------|-------------|
+| `getDyUnderlying({ meta, base }, i, j, dx)` | `get_dy_underlying` (0 = meta coin, 1..N = base coins) |
+| `calcTokenAmountUnderlying({ meta, base }, amounts, isDeposit)` | Factory zap `calc_token_amount` |
+| `calcWithdrawOneCoinUnderlying({ meta, base }, lpAmount, i)` | Factory zap `calc_withdraw_one_coin` |
+| `calcAddLiquidityUnderlying({ meta, base }, amounts)` | LP minted by the zap's `add_liquidity` (base mint, then meta mint at the base's post-deposit virtual price) |
 
 ### Twocrypto on StableswapMath (YieldBasis-style pools)
 

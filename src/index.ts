@@ -97,6 +97,10 @@ export type { TwocryptoOptimizedParams } from "./twocrypto-optimized";
 export * as tricryptoNg from "./tricrypto-ng";
 export type { TricryptoNgParams } from "./tricrypto-ng";
 
+// StableSwap metapools: underlying swaps and factory-zap liquidity, exact
+export * as metapool from "./metapool";
+export type { MetapoolParams } from "./metapool";
+
 // Fee-free marginal rates and pool-spot LP valuation (StableSwap, CryptoSwap)
 export * as spot from "./spot";
 export type { Ratio, CryptoSpotState } from "./spot";
