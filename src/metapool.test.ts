@@ -8,6 +8,8 @@ import * as metapool from "./metapool";
 import metaCases from "./__fixtures__/metapool-cases.json";
 import liquidityCases from "./__fixtures__/stableswap-liquidity-cases.json";
 import zapTx from "./__fixtures__/metapool-zap-tx-26119731.json";
+import cryptoMetaCases from "./__fixtures__/crypto-metapool-cases.json";
+import cvxCrvTx from "./__fixtures__/cryptoswap-v1-tx-26108142.json";
 
 const big = (xs: readonly string[]) => xs.map((x) => BigInt(x));
 
@@ -203,5 +205,89 @@ describe("factory zap add_liquidity tx 0x48ae5207…", () => {
     expect(() => metapool.calcTokenAmountUnderlying(params, [1n], true)).toThrow("every base coin");
     expect(() => metapool.calcWithdrawOneCoinUnderlying(params, 1n, 9)).toThrow("out of bounds");
     expect(() => metapool.calcAddLiquidityUnderlying(params, [1n], true)).toThrow("every base coin");
+  });
+});
+
+describe("crypto metapools: crypto-meta zap views", () => {
+  for (const c of cryptoMetaCases.cases as {
+    pool: string;
+    base: string;
+    A: string;
+    gamma: string;
+    D: string;
+    mid_fee: string;
+    out_fee: string;
+    fee_gamma: string;
+    price_scale: string;
+    balances: string[];
+    totalSupply: string;
+    coin0_decimals: number;
+    zap_get_dy: { i: number; j: number; dx: string; r: string }[];
+    zap_calc_token_amount: { amounts: string[]; r: string }[];
+    zap_calc_withdraw_one_coin: { amt: string; i: number; r: string }[];
+  }[]) {
+    it(`${c.pool} (${c.base})`, () => {
+      const params: metapool.CryptoMetapoolParams = {
+        meta: {
+          A: BigInt(c.A),
+          gamma: BigInt(c.gamma),
+          D: BigInt(c.D),
+          midFee: BigInt(c.mid_fee),
+          outFee: BigInt(c.out_fee),
+          feeGamma: BigInt(c.fee_gamma),
+          priceScale: BigInt(c.price_scale),
+          balances: big(c.balances) as [bigint, bigint],
+          precisions: [10n ** BigInt(18 - c.coin0_decimals), 1n],
+        },
+        metaTotalSupply: BigInt(c.totalSupply),
+        base: BASES[c.base],
+      };
+      for (const v of c.zap_get_dy) {
+        expect(metapool.cryptoGetDyUnderlying(params, v.i, v.j, BigInt(v.dx))).toBe(BigInt(v.r));
+      }
+      for (const v of c.zap_calc_token_amount) {
+        expect(metapool.cryptoCalcTokenAmountUnderlying(params, big(v.amounts))).toBe(BigInt(v.r));
+      }
+      for (const v of c.zap_calc_withdraw_one_coin) {
+        expect(metapool.cryptoCalcWithdrawOneCoinUnderlying(params, BigInt(v.amt), v.i)).toBe(BigInt(v.r));
+      }
+    });
+  }
+
+  it("reproduces tx 0xd4b4a8f9…: 46.4069 USDC through the FRAXBP zap mints 54.89 LP", () => {
+    const f = (liquidityCases.cases as (LiquidityCase & { pool: string })[]).find(
+      (x) => x.name === "FRAXBP" && x.block === 26108141
+    )!;
+    const s = cvxCrvTx.state;
+    const params: metapool.CryptoMetapoolParams = {
+      meta: {
+        A: BigInt(s.A),
+        gamma: BigInt(s.gamma),
+        D: BigInt(s.D),
+        midFee: BigInt(s.midFee),
+        outFee: BigInt(s.outFee),
+        feeGamma: BigInt(s.feeGamma),
+        priceScale: BigInt(s.priceScale),
+        balances: big(s.balances) as [bigint, bigint],
+        precisions: [1n, 1n],
+      },
+      metaTotalSupply: BigInt(s.totalSupply),
+      base: {
+        variant: "legacy",
+        balances: big(f.balances),
+        rates: big(f.rates),
+        A: BigInt(f.A),
+        ampPrecise: BigInt(f.ampPrecise),
+        ampPrecision: BigInt(f.ampPrecision),
+        fee: BigInt(f.fee),
+        offpegFeeMultiplier: 0n,
+        totalSupply: BigInt(f.totalSupply),
+      },
+    };
+    expect(metapool.cryptoCalcAddLiquidityUnderlying(params, [0n, 0n, 46406901n])).toBe(
+      BigInt(cvxCrvTx.txResult.addLiquidity.minted)
+    );
+    expect(() => metapool.cryptoGetDyUnderlying(params, 1, 1, 1n)).toThrow("must differ");
+    expect(() => metapool.cryptoCalcTokenAmountUnderlying(params, [1n])).toThrow("every base coin");
   });
 });

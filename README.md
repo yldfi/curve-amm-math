@@ -432,10 +432,8 @@ yTokens) need their current rates supplied in `rates`.
 Legacy `calc_token_amount` omits the imbalance fee that `add_liquidity`
 charges; use `calcAddLiquidityExact` for the amount minted.
 
-**Not covered:** the underlying (zap) paths of crypto metapools
-(`factory-crypto` `metacrypto`; their pool-level math is `cryptoswap`), and
-lending pools' rate accrual (cToken/aToken pools need current rates in
-`rates`).
+**Not covered:** lending pools' rate accrual (cToken/aToken pools need
+current rates in `rates`).
 
 ### Tricrypto-NG and Twocrypto-NG
 
@@ -479,6 +477,18 @@ go through the base pool:
 | `calcTokenAmountUnderlying({ meta, base }, amounts, isDeposit)` | Factory zap `calc_token_amount` |
 | `calcWithdrawOneCoinUnderlying({ meta, base }, lpAmount, i)` | Factory zap `calc_withdraw_one_coin` |
 | `calcAddLiquidityUnderlying({ meta, base }, amounts)` | LP minted by the zap's `add_liquidity` (base mint, then meta mint at the base's post-deposit virtual price) |
+
+Crypto metapools (`factory-crypto` `metacrypto`: a CurveCryptoSwap2 pool of
+[coin, base LP]) go through the crypto-meta zaps (FRAXBP 0x5De4EF48…, 3pool
+0x97aDC08F…). Pass `{ meta: TwocryptoParams, metaTotalSupply, base }`:
+
+| Function | Description |
+|----------|-------------|
+| `cryptoGetDyUnderlying(params, i, j, dx)` | Zap `get_dy` (0 = crypto coin, 1..N = base coins) |
+| `cryptoCalcTokenAmountUnderlying(params, amounts)` | Zap `calc_token_amount` |
+| `cryptoCalcWithdrawOneCoinUnderlying(params, lpAmount, i)` | Zap `calc_withdraw_one_coin` |
+| `cryptoCalcAddLiquidityUnderlying(params, amounts)` | LP minted by the zap's `add_liquidity` |
+| `cryptoRemoveLiquidityOneCoinUnderlying(params, lpAmount, i)` | Coin paid by the zap's `remove_liquidity_one_coin` |
 
 ### Twocrypto on StableswapMath (YieldBasis-style pools)
 
