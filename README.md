@@ -39,10 +39,9 @@ pnpm add @yldfi/curve-amm-math
 yarn add @yldfi/curve-amm-math
 ```
 
-For RPC utilities:
-```bash
-npm install @yldfi/curve-amm-math viem
-```
+The library has no runtime dependencies. The optional `@yldfi/curve-amm-math/rpc`
+helpers use plain JSON-RPC over `fetch` (Node.js 18+ or any browser); they do
+not need viem or ethers.
 
 ## Usage
 
