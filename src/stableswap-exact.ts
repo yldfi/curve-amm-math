@@ -628,6 +628,12 @@ export interface StableLiquidityParams extends ExactPoolParams {
   ampPrecise?: bigint;
   /** Admin share of fees (1e10 precision), default 5e9 (50%) */
   adminFee?: bigint;
+  /**
+   * `get_dy` rounding order for `"legacy"` pools: true scales dy to coin
+   * units before charging the fee (3pool-era pools without `A_precise()`),
+   * false charges the fee first. Defaults to `ampPrecision === 1n`.
+   */
+  feeAfterScaling?: boolean;
 }
 
 /** Result of an exact add_liquidity / remove_liquidity_imbalance */
@@ -1038,4 +1044,78 @@ export function getVirtualPriceExact(params: StableLiquidityParams): bigint {
   const [amp, ampPrecision] = liquidityAmp(params);
   const D = getDVariant(getXp(params.balances, params.rates), amp, params.variant, ampPrecision);
   return (D * PRECISION) / params.totalSupply;
+}
+
+/**
+ * get_y with an explicit A_PRECISION (Vyper `get_y`, all variants): x[j]
+ * such that the invariant stays D when x[i] = x.
+ */
+export function getYVariant(
+  i: number,
+  j: number,
+  x: bigint,
+  xp: bigint[],
+  amp: bigint,
+  D: bigint,
+  ampPrecision: bigint = A_PRECISION
+): bigint {
+  const nCoins = xp.length;
+  if (i === j) throw new Error("getYVariant: i and j must be different");
+  if (i < 0 || j < 0 || i >= nCoins || j >= nCoins) {
+    throw new Error(`getYVariant: index out of bounds (i=${i}, j=${j}, nCoins=${nCoins})`);
+  }
+  if (amp === 0n) throw new Error("getYVariant: amp (A parameter) cannot be zero");
+  const N = BigInt(nCoins);
+  const Ann = amp * N;
+  let c = D;
+  let S_ = 0n;
+  for (let k = 0; k < nCoins; k++) {
+    let _x: bigint;
+    if (k === i) _x = x;
+    else if (k !== j) _x = xp[k];
+    else continue;
+    if (_x === 0n) throw new Error(`getYVariant: zero balance at index ${k}`);
+    S_ += _x;
+    c = (c * D) / (_x * N);
+  }
+  c = (c * D * ampPrecision) / (Ann * N);
+  const b = S_ + (D * ampPrecision) / Ann;
+  let y = D;
+  for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
+    const y_prev = y;
+    const denom = 2n * y + b - D;
+    if (denom <= 0n) throw new Error("getYVariant: denominator (2y + b - D) is non-positive");
+    y = (y * y + c) / denom;
+    if (y > y_prev ? y - y_prev <= 1n : y_prev - y <= 1n) return y;
+  }
+  throw new Error("get_y did not converge");
+}
+
+/**
+ * Exact `get_dy(i, j, dx)` for any variant: `"legacy"` / `"plain"` charge
+ * the static fee (see `feeAfterScaling` for the rounding order), `"ng"` the
+ * dynamic fee at the trade's average balances (StableSwap-NG views).
+ */
+export function getDyVariant(params: StableLiquidityParams, i: number, j: number, dx: bigint): bigint {
+  const ampPrecision = params.ampPrecision ?? A_PRECISION;
+  const amp = params.ampPrecise ?? params.A * ampPrecision;
+  const { rates } = params;
+  const xp = getXp(params.balances, rates);
+  const D = getDVariant(xp, amp, params.variant, ampPrecision);
+  const x = xp[i] + (dx * rates[i]) / PRECISION;
+  const y = getYVariant(i, j, x, xp, amp, D, ampPrecision);
+  let dy = xp[j] - y - 1n;
+  if (dy < 0n) return 0n;
+  if (params.variant === "ng") {
+    const f =
+      (dynamicFee((xp[i] + x) / 2n, (xp[j] + y) / 2n, params.fee, params.offpegFeeMultiplier) * dy) /
+      FEE_DENOMINATOR;
+    return ((dy - f) * PRECISION) / rates[j];
+  }
+  const feeAfterScaling = params.feeAfterScaling ?? ampPrecision === 1n;
+  if (feeAfterScaling) {
+    dy = (dy * PRECISION) / rates[j];
+    return dy - (params.fee * dy) / FEE_DENOMINATOR;
+  }
+  return ((dy - (params.fee * dy) / FEE_DENOMINATOR) * PRECISION) / rates[j];
 }
