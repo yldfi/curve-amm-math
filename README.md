@@ -17,7 +17,9 @@
 
 - **StableSwap math** - For pegged asset pools (stablecoins, liquid staking tokens)
 - **Exact precision mode** - Match on-chain results within ±1 wei for all StableSwap pool types
-- **CryptoSwap math** - Exact (to the wei) quotes for classic CryptoSwap pools: 2-coin CurveCryptoSwap2 factory pools and tricrypto2
+- **CryptoSwap math** - Exact (to the wei) quotes for classic CryptoSwap pools (CurveCryptoSwap2, tricrypto2), Tricrypto-NG and Twocrypto-NG
+- **Exact liquidity math** - add / remove liquidity for legacy, plain and NG StableSwap pools and all CryptoSwap families
+- **Spot math** - Fee-free marginal rates and LP pool-spot value (an upper bound for single-coin withdrawals)
 - **YieldBasis virtual pool math** - For YieldBasis stablecoin <-> asset virtual pool quotes
 - **LlamaLend LLAMMA math** - For Curve LlamaLend borrowed token <-> collateral AMM quotes
 - **triCRV helpers** - Classic 3pool exact StableSwap helpers (DAI/USDC/USDT)
@@ -393,6 +395,71 @@ changes `totalSupply` and `D` for the next call.
 | `calcWithdrawOneCoin3(params, lpAmount, i, totalSupply)` | `calc_withdraw_one_coin` view |
 | `calcRemoveLiquidityOneCoin3(params, lpAmount, i, totalSupply)` | `remove_liquidity_one_coin` |
 | `calcRemoveLiquidity3(params, lpAmount, totalSupply)` | Balanced `remove_liquidity` |
+
+### StableSwapExact - Liquidity Functions
+
+Exact (to the wei) ports of each StableSwap family's liquidity functions.
+`params` is `StableLiquidityParams`: `ExactPoolParams` plus `variant`,
+`totalSupply`, and optionally `ampPrecision` (1 for 3pool), `ampPrecise`
+(the pool's `A_precise()`, needed while A ramps) and `adminFee`.
+
+| `variant` | Pools | `calc_token_amount` |
+|-----------|-------|---------------------|
+| `"legacy"` | 3pool, FRAXBP and other pre-factory pools | no imbalance fee |
+| `"plain"` | Factory plain pools (Vyper 0.3.x) | static imbalance fee |
+| `"ng"` | StableSwap-NG | dynamic fee (`offpeg_fee_multiplier`) |
+
+| Function | Description |
+|----------|-------------|
+| `calcTokenAmountExact(params, amounts, isDeposit)` | `calc_token_amount` view as the contract returns it |
+| `calcAddLiquidityExact(params, amounts)` | LP actually minted by `add_liquidity` (imbalance fee included), per-coin fees, new balances |
+| `calcRemoveLiquidityImbalanceExact(params, amounts)` | LP burned by `remove_liquidity_imbalance` (`+ 1`) |
+| `calcWithdrawOneCoinExact(params, burnAmount, i)` | `[dy, fee]` of `calc_withdraw_one_coin` |
+| `calcRemoveLiquidityExact(params, burnAmount)` | Balanced `remove_liquidity` |
+| `getVirtualPriceExact(params)` | `get_virtual_price()` |
+| `getDVariant(xp, amp, variant, ampPrecision?)` / `getYDVariant(...)` | Invariant helpers per family |
+
+Legacy `calc_token_amount` omits the imbalance fee that `add_liquidity`
+charges; use `calcAddLiquidityExact` for the amount minted. Metapools are not
+covered.
+
+### Tricrypto-NG and Twocrypto-NG
+
+`tricryptoNg` ports CurveTricryptoOptimizedWETH v2.0.0 (math
+`0xcBFf3004…D6eE`); `twocryptoOptimized` ports CurveTwocryptoOptimized
+v2.1.0/v2.1.1 (math `0x1Fd8Af16…F4A1`). Each exposes
+`assertSupportedImplementation(version, mathAddress)`; other versions must not
+be quoted with them. Twocrypto pools whose MATH is StableswapMath (v2.1.0d,
+v3.0.0) use `twocryptoNg`.
+
+| Function | Description |
+|----------|-------------|
+| `getDy(params, i, j, dx)` / `getDx(...)` | Swap quotes |
+| `calcTokenAmount(params, amounts, deposit)` | `calc_token_amount`, NG imbalance fee included |
+| `calcWithdrawOneCoin(params, lpAmount, i)` | Pool `calc_withdraw_one_coin` (what `remove_liquidity_one_coin` pays) |
+| `calcWithdrawOneCoinViews(params, lpAmount, i)` | The views contract's variant |
+| `calcRemoveLiquidity(params, lpAmount)` | Balanced `remove_liquidity` |
+| `getVirtualPrice(params)`, `lpPrice(...)`, `fee(params)` | Price and fee getters |
+| `newtonD`, `getY`, `newtonY` | Math contract ports |
+
+`params.D` is the stored `D()`; set `isRamping` when
+`future_A_gamma_time > block.timestamp`.
+
+### Spot - Marginal Rates and LP Spot Value
+
+Fee-free marginal rate r_{j→i} (coin i out per coin j in, raw units) from the
+invariant gradient, and the pool-spot value of LP in coin i:
+`UB_i = L / supply · Σ_j balance_j · r_{j→i}`, an upper bound for
+`calc_withdraw_one_coin`. Results are exact rationals (`{ n, d }`); floor once
+with `floorRatio`.
+
+| Function | Description |
+|----------|-------------|
+| `stableSwapMarginalRate(params, j, i)` | Exact StableSwap gradient rate |
+| `stableSwapLpSpotValue(params, lpAmount, i)` | Guaranteed upper bound (min over D ± 1) |
+| `cryptoSwapMarginalRate(state, j, i)` | CryptoSwap gradient rate (classic and NG) |
+| `cryptoSwapLpSpotValue(state, lpAmount, supply, i)` | CryptoSwap pool-spot value |
+| `lpSpotValueFromRates(balances, i, rates, lpAmount, supply)` | Spot value from any rates |
 
 ### CryptoSwap - Price Functions
 
