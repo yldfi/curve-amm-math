@@ -1174,3 +1174,61 @@ export function ankrAethRate(ratio: bigint): bigint {
   if (ratio === 0n) throw new Error("ankrAethRate: ratio cannot be zero");
   return (PRECISION * PRECISION) / ratio;
 }
+
+/** Result of {@link calcExchangeExact} */
+export interface StableExchangeResult {
+  /** Amount of coin j sent to the trader */
+  dy: bigint;
+  /** Admin share of the fee, in coin j units */
+  adminFee: bigint;
+  /** Pool `balances()` after the swap */
+  balances: bigint[];
+}
+
+/**
+ * The state-changing `exchange(i, j, dx)`: the amount paid out (equal to
+ * {@link getDyVariant}) and the pool's balances afterwards, with the admin
+ * share of the fee removed from coin j (`admin_balances` in NG pools).
+ * `"aave"` pools are not supported here.
+ */
+export function calcExchangeExact(
+  params: StableLiquidityParams,
+  i: number,
+  j: number,
+  dx: bigint
+): StableExchangeResult {
+  if (params.variant === "aave") {
+    throw new Error("calcExchangeExact: aave pools are not supported");
+  }
+  const ampPrecision = params.ampPrecision ?? A_PRECISION;
+  const amp = params.ampPrecise ?? params.A * ampPrecision;
+  const adminFee = params.adminFee ?? 5000000000n;
+  const { rates } = params;
+  const xp = getXp(params.balances, rates);
+  const D = getDVariant(xp, amp, params.variant, ampPrecision);
+  const x = xp[i] + (dx * rates[i]) / PRECISION;
+  const y = getYVariant(i, j, x, xp, amp, D, ampPrecision);
+  const subtract = params.getDySubtractOne === false ? 0n : 1n;
+  let dy = xp[j] - y - subtract;
+  let admin: bigint;
+  const feeAfterScaling =
+    params.variant !== "ng" && (params.feeAfterScaling ?? ampPrecision === 1n);
+  if (feeAfterScaling) {
+    dy = (dy * PRECISION) / rates[j];
+    const dyFee = (params.fee * dy) / FEE_DENOMINATOR;
+    admin = (dyFee * adminFee) / FEE_DENOMINATOR;
+    dy -= dyFee;
+  } else {
+    const feeRate =
+      params.variant === "ng"
+        ? dynamicFee((xp[i] + x) / 2n, (xp[j] + y) / 2n, params.fee, params.offpegFeeMultiplier)
+        : params.fee;
+    const dyFee = (dy * feeRate) / FEE_DENOMINATOR;
+    admin = (((dyFee * adminFee) / FEE_DENOMINATOR) * PRECISION) / rates[j];
+    dy = ((dy - dyFee) * PRECISION) / rates[j];
+  }
+  const balances = [...params.balances];
+  balances[i] += dx;
+  balances[j] -= dy + admin;
+  return { dy, adminFee: admin, balances };
+}

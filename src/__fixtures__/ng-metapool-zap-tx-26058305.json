@@ -1,0 +1,58 @@
+{
+ "block": 26058304,
+ "tx": "0x84848e48aeff28d3b1906b3102804c38ac196d0b870a5ebd77b1dce5b48f0ec5",
+ "zap": "0xe07a16358aa878cbda2d49a88e5106871e0db307",
+ "base": {
+  "pool": "0x4f493b7de8aac7d55f71853688b1f7c8f0243c85",
+  "balances": [
+   "1879415807923",
+   "3240518705734"
+  ],
+  "A": "10000",
+  "A_precise": "1000000",
+  "fee": "100000",
+  "offpeg_fee_multiplier": "200000000000",
+  "stored_rates": [
+   "1000000000000000000000000000000",
+   "1000000000000000000000000000000"
+  ],
+  "totalSupply": "5024093242143188955794169",
+  "get_virtual_price": "1019072457689806981"
+ },
+ "meta": {
+  "pool": "0xc09e82f81cb811db0922dd48206fc2e212322caf",
+  "balances": [
+   "6531014124313801801745606",
+   "3466485002728119623744645"
+  ],
+  "A": "2000",
+  "A_precise": "200000",
+  "fee": "1000000",
+  "offpeg_fee_multiplier": "100000000000",
+  "stored_rates": [
+   "1000000000000000000",
+   "1019072457689806981"
+  ],
+  "totalSupply": "10043762348093429758386301",
+  "get_virtual_price": "1001952078088364148"
+ },
+ "result": {
+  "amounts": [
+   "0",
+   "0",
+   "427969770"
+  ],
+  "baseMinted": "419946920999986599325",
+  "metaMinted": "427183235112659850537",
+  "metaWithdrawBaseLp": "419891233485233018676",
+  "baseWithdrawUsdc": "427880820"
+ },
+ "description": "State of the USDC/USDT NG base pool and the USD1 NG metapool at block 26058304. Tx index 14 of block 26058305 swaps on the base pool first (priorSwap); tx 0x84848e48 (index 15) then deposits USDT through MetaZapNG, and withdraws one coin from the metapool and the base pool.",
+ "priorSwap": {
+  "tx_index": 14,
+  "i": 1,
+  "j": 0,
+  "dx": "28930423925",
+  "dy": "28928282165"
+ }
+}
