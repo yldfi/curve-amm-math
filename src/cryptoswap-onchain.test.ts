@@ -11,6 +11,7 @@ import { describe, it, expect } from "vitest";
 import * as cryptoswap from "./cryptoswap";
 import poolCases from "./__fixtures__/curve-pool-cases.json";
 import txCase from "./__fixtures__/cryptoswap-v1-tx-26108142.json";
+import tricrypto2Case from "./__fixtures__/tricrypto2-26132000.json";
 
 interface PoolCase {
   name: string;
@@ -341,5 +342,56 @@ describe("CurveCryptoSwap2 helpers", () => {
     expect(() => cryptoswap.newtonD(400000n, 145000000000000n, [10n ** 8n, 10n ** 8n])).toThrow(
       "unsafe values x[0]"
     );
+  });
+});
+
+describe("tricrypto2 views at block 26132000", () => {
+  const c = tricrypto2Case;
+  const params: cryptoswap.TricryptoParams = {
+    A: BigInt(c.A),
+    gamma: BigInt(c.gamma),
+    D: BigInt(c.D),
+    midFee: BigInt(c.mid_fee),
+    outFee: BigInt(c.out_fee),
+    feeGamma: BigInt(c.fee_gamma),
+    priceScales: big(c.price_scale) as [bigint, bigint],
+    balances: big(c.balances) as [bigint, bigint, bigint],
+    precisions: big(c.precisions) as [bigint, bigint, bigint],
+  };
+  const supply = BigInt(c.totalSupply);
+  const xp = cryptoswap.scaleBalances3(params.balances, params.precisions!, params.priceScales);
+
+  it("fee and get_virtual_price", () => {
+    expect(cryptoswap.dynamicFee(xp, params.feeGamma, params.midFee, params.outFee)).toBe(
+      BigInt(c.fee)
+    );
+    expect(cryptoswap.getVirtualPrice3(params, supply)).toBe(BigInt(c.get_virtual_price));
+  });
+
+  it("get_dy", () => {
+    for (const v of c.get_dy) {
+      expect(cryptoswap.getDy3(params, v.i, v.j, BigInt(v.dx))).toBe(BigInt(v.result));
+    }
+  });
+
+  it("calc_token_amount (deposit and withdrawal)", () => {
+    for (const v of c.calc_token_amount) {
+      expect(
+        cryptoswap.calcTokenAmount3(
+          params,
+          big(v.amounts) as [bigint, bigint, bigint],
+          supply,
+          v.deposit
+        )
+      ).toBe(BigInt(v.result));
+    }
+  });
+
+  it("calc_withdraw_one_coin", () => {
+    for (const v of c.calc_withdraw_one_coin) {
+      expect(cryptoswap.calcWithdrawOneCoin3(params, BigInt(v.tokenAmount), v.i, supply)).toBe(
+        BigInt(v.result)
+      );
+    }
   });
 });

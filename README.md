@@ -451,7 +451,10 @@ v3.0.0) use `twocryptoNg`.
 | `newtonD`, `getY`, `newtonY` | Math contract ports |
 
 `params.D` is the stored `D()`; set `isRamping` when
-`future_A_gamma_time > block.timestamp`.
+`future_A_gamma_time > block.timestamp`. `tricryptoNg.lpPrice` takes the
+*stored* (undecayed) price oracle, as `lp_price()` reads it; the
+`price_oracle(k)` view only equals it when `last_prices_timestamp` is the
+current block.
 
 ### Spot - Marginal Rates and LP Spot Value
 
