@@ -204,3 +204,33 @@ describe("Twocrypto (StableswapMath) behaviour", () => {
     ).toThrow("exceeds pool balance");
   });
 });
+
+describe("Twocrypto (StableswapMath) with donation protection active", () => {
+  const c = cases.donationActive as unknown as Case;
+  const params = toParams(c);
+
+  it("protection is active at the fixture block", () => {
+    expect(BigInt(c.donation_protection_expiry_ts!)).toBeGreaterThan(BigInt(c.blockTimestamp));
+  });
+
+  it("every on-chain view matches, deposits only with the LP spam fee", () => {
+    expect(twocryptoStableswap.fee(params)).toBe(BigInt(c.fee));
+    for (const v of c.get_dy) {
+      expect(twocryptoStableswap.getDy(params, v.i, v.j, BigInt(v.dx))).toBe(BigInt(v.result));
+    }
+    for (const v of c.calc_token_amount) {
+      const amounts = big(v.amounts) as [bigint, bigint];
+      expect(twocryptoStableswap.calcTokenAmount(params, amounts, v.deposit)).toBe(BigInt(v.result));
+      const withoutDonation = twocryptoStableswap.calcTokenAmount(
+        { ...params, donation: undefined },
+        amounts,
+        v.deposit
+      );
+      if (v.deposit) expect(withoutDonation).toBeGreaterThan(BigInt(v.result));
+      else expect(withoutDonation).toBe(BigInt(v.result));
+    }
+    for (const v of c.calc_withdraw_one_coin) {
+      expect(twocryptoStableswap.calcWithdrawOneCoin(params, BigInt(v.tokenAmount), v.i)).toBe(BigInt(v.result));
+    }
+  });
+});

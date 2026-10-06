@@ -1,5 +1,5 @@
 {
- "description": "Twocrypto pools on StableswapMath (v3.0.0 and v2.1.0d) at Ethereum mainnet block 26132000: getters and view results. No pool was ramping. POLICY pools returned the pool's own fee at this block.",
+ "description": "Twocrypto pools on StableswapMath (v3.0.0 and v2.1.0d) at Ethereum mainnet block 26132000: getters and view results. No pool was ramping. POLICY pools returned the pool's own fee at this block. donationActive: crvUSD/WBTC at block 26127328, right after a deposit, with donation protection active.",
  "cases": [
   {
    "name": "crvUSD/WBTC",
@@ -1380,5 +1380,202 @@
     }
    ]
   }
- ]
+ ],
+ "donationActive": {
+  "name": "crvUSD/WBTC donation-active",
+  "pool": "0x313698667d7fdd6789a9bc70821309ff891e729a",
+  "block": 26127328,
+  "blockTimestamp": "1791217295",
+  "version": "v3.0.0",
+  "MATH": "0xbfddf58cb6ef84e115ff47c10e49a80b2653ea13",
+  "POLICY": "0x0436c0648afd66de23f86f23cb42884304743efa",
+  "A": "50000",
+  "gamma": "11111111111",
+  "D": "64749939700188635239071168",
+  "mid_fee": "130000000",
+  "out_fee": "130000000",
+  "fee_gamma": "30000000000000000",
+  "fee": "130000000",
+  "totalSupply": "121199887024988458414071",
+  "get_virtual_price": "1009964944053289956",
+  "virtual_price": "1009964944053289956",
+  "lp_price": "591604590389607981161",
+  "price_scale": "69952254495868433973935",
+  "price_oracle": "85780876521287168287549",
+  "last_prices": "85739414152590900702374",
+  "last_timestamp": "1791217295",
+  "future_A_gamma_time": "0",
+  "donation_shares": "23991519121521693875",
+  "donation_protection_expiry_ts": "1791217297",
+  "donation_protection_period": "600",
+  "donation_shares_max_ratio": "100000000000000000",
+  "donation_duration": "604800",
+  "last_donation_release_ts": "1791004267",
+  "admin_fee": "0",
+  "reserved_profit_fraction": "3000000000",
+  "balances": [
+   "47765056821802441208768458",
+   "26134701678"
+  ],
+  "precisions": [
+   "1",
+   "10000000000"
+  ],
+  "get_dy": [
+   {
+    "i": 0,
+    "j": 1,
+    "dx": "477650568218024412087",
+    "result": "549851"
+   },
+   {
+    "i": 0,
+    "j": 1,
+    "dx": "477650568218024412087684",
+    "result": "547204954"
+   },
+   {
+    "i": 0,
+    "j": 1,
+    "dx": "4776505682180244120876845",
+    "result": "5212017330"
+   },
+   {
+    "i": 1,
+    "j": 0,
+    "dx": "261347",
+    "result": "221164161184052178569"
+   },
+   {
+    "i": 1,
+    "j": 0,
+    "dx": "261347016",
+    "result": "220673148995852392529836"
+   },
+   {
+    "i": 1,
+    "j": 0,
+    "dx": "2613470167",
+    "result": "2165953237753058600913217"
+   }
+  ],
+  "calc_token_amount": [
+   {
+    "amounts": [
+     "47765056821802441208768",
+     "0"
+    ],
+    "deposit": true,
+    "result": "81957002946673428450"
+   },
+   {
+    "amounts": [
+     "47765056821802441208768",
+     "0"
+    ],
+    "deposit": false,
+    "result": "83039163948190174722"
+   },
+   {
+    "amounts": [
+     "4776505682180244120876845",
+     "0"
+    ],
+    "deposit": true,
+    "result": "8156942889993297148999"
+   },
+   {
+    "amounts": [
+     "4776505682180244120876845",
+     "0"
+    ],
+    "deposit": false,
+    "result": "8344779391971205003933"
+   },
+   {
+    "amounts": [
+     "0",
+     "26134701"
+    ],
+    "deposit": true,
+    "result": "38445890169676694507"
+   },
+   {
+    "amounts": [
+     "0",
+     "26134701"
+    ],
+    "deposit": false,
+    "result": "38957822411383067970"
+   },
+   {
+    "amounts": [
+     "0",
+     "2613470167"
+    ],
+    "deposit": true,
+    "result": "3808028986440412982052"
+   },
+   {
+    "amounts": [
+     "0",
+     "2613470167"
+    ],
+    "deposit": false,
+    "result": "3939365562460148607466"
+   },
+   {
+    "amounts": [
+     "477650568218024412087684",
+     "261347016"
+    ],
+    "deposit": true,
+    "result": "1211986697720262091780"
+   },
+   {
+    "amounts": [
+     "477650568218024412087684",
+     "261347016"
+    ],
+    "deposit": false,
+    "result": "1212010988605461872230"
+   }
+  ],
+  "calc_withdraw_one_coin": [
+   {
+    "tokenAmount": "1000000000000000000",
+    "i": 0,
+    "result": "575214769085414477868"
+   },
+   {
+    "tokenAmount": "1000000000000000000",
+    "i": 1,
+    "result": "670885"
+   },
+   {
+    "tokenAmount": "6059994351249422920703",
+    "i": 0,
+    "result": "3473318442486006152552695"
+   },
+   {
+    "tokenAmount": "6059994351249422920703",
+    "i": 1,
+    "result": "3993276591"
+   }
+  ],
+  "calc_withdraw_fixed_out": [
+   {
+    "tokenAmount": "6059994351249422920703",
+    "i": 0,
+    "amount_i": "1194126420545061030219211",
+    "result": "2664974118"
+   },
+   {
+    "tokenAmount": "6059994351249422920703",
+    "i": 1,
+    "amount_i": "653367541",
+    "result": "2935214453518668413150500"
+   }
+  ]
+ }
 }
