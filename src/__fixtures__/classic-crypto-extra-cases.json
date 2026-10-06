@@ -1,0 +1,132 @@
+{
+ "description": "Classic CryptoSwap pools from the Curve API crypto/main registries at block 26132000: getters, get_virtual_price and calc_withdraw_one_coin(totalSupply/100, i).",
+ "cases": [
+  {
+   "name": "EURS/USDC",
+   "pool": "0x98a7f18d4e56cfe84e3d081b40001b3d5bd3eb8b",
+   "n": 2,
+   "A": "20000000",
+   "gamma": "1000000000000000",
+   "D": "4449840381645385123333498",
+   "mid_fee": "3000000",
+   "out_fee": "45000000",
+   "fee_gamma": "5000000000",
+   "fee": "44999972",
+   "get_virtual_price": "1010228624558226136",
+   "future_A_gamma_time": "0",
+   "balances": [
+    "2030722940448",
+    "200614811"
+   ],
+   "price_scale": [
+    "1206387944512682950"
+   ],
+   "totalSupply": "2005170344212479770233247",
+   "decimals": [
+    6,
+    2
+   ],
+   "cwo": [
+    {
+     "amt": "20051703442124797702332",
+     "i": 0,
+     "r": "43590719354"
+    },
+    {
+     "amt": "20051703442124797702332",
+     "i": 1,
+     "r": "3719151"
+    }
+   ],
+   "block": 26132000
+  },
+  {
+   "name": "T/ETH",
+   "pool": "0x752ebeb79963cf0732e9c0fec72a49fd1defaeac",
+   "n": 2,
+   "A": "400000",
+   "gamma": "145000000000000",
+   "D": "205865433198288166734",
+   "mid_fee": "26000000",
+   "out_fee": "45000000",
+   "fee_gamma": "230000000000000",
+   "fee": "40580758",
+   "get_virtual_price": "1105990620123039533",
+   "future_A_gamma_time": "0",
+   "balances": [
+    "100113816605306797892",
+    "50944498867745863651695819"
+   ],
+   "price_scale": [
+    "2076491311073"
+   ],
+   "totalSupply": "64585783433340222043306",
+   "decimals": [
+    18,
+    18
+   ],
+   "cwo": [
+    {
+     "amt": "645857834333402220433",
+     "i": 0,
+     "r": "2005817449495071945"
+    },
+    {
+     "amt": "645857834333402220433",
+     "i": 1,
+     "r": "1002014539871037319062210"
+    }
+   ],
+   "block": 26132000
+  },
+  {
+   "name": "tricrypto-v1",
+   "pool": "0x80466c64868e1ab14a1ddf27a676c3fcbe638fe5",
+   "n": 3,
+   "A": "3645",
+   "gamma": "69999999999999",
+   "D": "286060018648478648267130",
+   "mid_fee": "4000000",
+   "out_fee": "40000000",
+   "fee_gamma": "10000000000000000",
+   "fee": "21664478",
+   "get_virtual_price": "1055346137778699925",
+   "future_A_gamma_time": "0",
+   "balances": [
+    "106572482459",
+    "121616296",
+    "38425448314839409808"
+   ],
+   "price_scale": [
+    "74559591408465329070949",
+    "2327065237916467206191"
+   ],
+   "totalSupply": "161995750962151396624",
+   "decimals": [
+    6,
+    8,
+    18
+   ],
+   "cwo": [
+    {
+     "amt": "1619957509621513966",
+     "i": 0,
+     "r": "3106749800"
+    },
+    {
+     "amt": "1619957509621513966",
+     "i": 1,
+     "r": "3638905"
+    },
+    {
+     "amt": "1619957509621513966",
+     "i": 2,
+     "r": "1151689095617729959"
+    }
+   ],
+   "block": 26132000,
+   "A_precise": "364500",
+   "note": "tricrypto v1: math uses A_MULTIPLIER=100 with A_precise(); pass A = A_precise * 100. calc_withdraw_one_coin starts from the stored D (calcRemoveLiquidityOneCoin3)."
+  }
+ ]
+}

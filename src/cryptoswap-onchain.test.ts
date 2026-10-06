@@ -12,6 +12,7 @@ import * as cryptoswap from "./cryptoswap";
 import poolCases from "./__fixtures__/curve-pool-cases.json";
 import txCase from "./__fixtures__/cryptoswap-v1-tx-26108142.json";
 import tricrypto2Case from "./__fixtures__/tricrypto2-26132000.json";
+import extraCases from "./__fixtures__/classic-crypto-extra-cases.json";
 
 interface PoolCase {
   name: string;
@@ -394,4 +395,63 @@ describe("tricrypto2 views at block 26132000", () => {
       );
     }
   });
+});
+
+describe("other classic crypto pools (EURS/USDC, T/ETH, tricrypto v1)", () => {
+  for (const c of extraCases.cases as {
+    name: string;
+    n: number;
+    A: string;
+    A_precise?: string;
+    gamma: string;
+    D: string;
+    mid_fee: string;
+    out_fee: string;
+    fee_gamma: string;
+    get_virtual_price: string;
+    balances: string[];
+    price_scale: string[];
+    totalSupply: string;
+    decimals: number[];
+    cwo: { amt: string; i: number; r: string }[];
+  }[]) {
+    it(c.name, () => {
+      const precisions = c.decimals.map((d) => 10n ** BigInt(18 - d));
+      // tricrypto v1's math uses A_MULTIPLIER = 100 with A_precise()
+      const A = c.A_precise ? BigInt(c.A_precise) * 100n : BigInt(c.A);
+      const base = {
+        A,
+        gamma: BigInt(c.gamma),
+        D: BigInt(c.D),
+        midFee: BigInt(c.mid_fee),
+        outFee: BigInt(c.out_fee),
+        feeGamma: BigInt(c.fee_gamma),
+      };
+      const supply = BigInt(c.totalSupply);
+      for (const w of c.cwo) {
+        let dy: bigint;
+        if (c.n === 2) {
+          const p: cryptoswap.TwocryptoParams = {
+            ...base,
+            priceScale: BigInt(c.price_scale[0]),
+            balances: big(c.balances) as [bigint, bigint],
+            precisions: precisions as [bigint, bigint],
+          };
+          dy = cryptoswap.calcWithdrawOneCoin(p, BigInt(w.amt), w.i, supply);
+          expect(cryptoswap.getVirtualPrice(p, supply)).toBe(BigInt(c.get_virtual_price));
+        } else {
+          const p: cryptoswap.TricryptoParams = {
+            ...base,
+            priceScales: big(c.price_scale) as [bigint, bigint],
+            balances: big(c.balances) as [bigint, bigint, bigint],
+            precisions: precisions as [bigint, bigint, bigint],
+          };
+          // tricrypto v1's calc_withdraw_one_coin starts from the stored D
+          dy = cryptoswap.calcRemoveLiquidityOneCoin3(p, BigInt(w.amt), w.i, supply).dy;
+          expect(cryptoswap.getVirtualPrice3(p, supply)).toBe(BigInt(c.get_virtual_price));
+        }
+        expect(dy).toBe(BigInt(w.r));
+      }
+    });
+  }
 });
