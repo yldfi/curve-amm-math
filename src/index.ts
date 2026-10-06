@@ -85,6 +85,10 @@ export type {
 export * as twocryptoNg from "./twocrypto-ng";
 export type { TwocryptoNgParams } from "./twocrypto-ng";
 
+// Twocrypto pools backed by StableswapMath (v3.0.0 / v2.1.0d): exact liquidity math
+export * as twocryptoStableswap from "./twocrypto-stableswap";
+export type { TwocryptoStableswapParams } from "./twocrypto-stableswap";
+
 // Twocrypto-NG pools backed by CurveTwocryptoMathOptimized (v2.1.x), exact
 export * as twocryptoOptimized from "./twocrypto-optimized";
 export type { TwocryptoOptimizedParams } from "./twocrypto-optimized";
