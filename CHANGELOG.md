@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0](https://github.com/yldfi/curve-amm-math/compare/v1.4.0...v1.5.0) (2026-10-06)
+
+
+### Features
+
+* add calcExchangeExact; verify NG and crypto metapool zap txs ([d89104a](https://github.com/yldfi/curve-amm-math/commit/d89104a711349f0547d733932db33864825949d8))
+* add exact crypto-metapool zap math ([5f6cc38](https://github.com/yldfi/curve-amm-math/commit/5f6cc38ca5fb30bcd309e27e68b657c3c6e4d2dd))
+* add exact liquidity math for Twocrypto pools on StableswapMath ([1a9ae44](https://github.com/yldfi/curve-amm-math/commit/1a9ae44b765a100d9a7f3486f7c1634ff332b327))
+* add exact metapool math and get_dy for every StableSwap family ([2c07949](https://github.com/yldfi/curve-amm-math/commit/2c07949a409552431114527e200197d83c74a69e))
+* cover lending, aave and rate-token StableSwap pools ([4e4ccbc](https://github.com/yldfi/curve-amm-math/commit/4e4ccbc7b60d115eb620109c2d34d80f2237befc))
+* fail closed on unknown Twocrypto fee POLICY contracts ([4627ac0](https://github.com/yldfi/curve-amm-math/commit/4627ac0faac4dfe4ca71c41c0f5b121447db5aea))
+* port the old lending-pool deposit zaps; verify pools at active blocks ([14654bd](https://github.com/yldfi/curve-amm-math/commit/14654bd69686aa09d253df147b6237df2a0afeb0))
+* support Tricrypto-NG v2.0.1 and Twocrypto-NG v2.0.0 pools ([307576b](https://github.com/yldfi/curve-amm-math/commit/307576ba02b3c30af996f237cd5f46a2e660bfaa))
+
+
+### Bug Fixes
+
+* drop the unused optional viem peer dependency ([e809adb](https://github.com/yldfi/curve-amm-math/commit/e809adb7b5948fbff528057104479a8ab59f56c8))
+* verify ramp paths on-chain; NG calc_token_amount uses A() * 100 ([3f47220](https://github.com/yldfi/curve-amm-math/commit/3f47220334871841719840dfd32daed64539b7f5))
+
 ## [1.4.0](https://github.com/yldfi/curve-amm-math/compare/v1.3.0...v1.4.0) (2026-10-06)
 
 
