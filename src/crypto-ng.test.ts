@@ -301,3 +301,11 @@ describe("NG helpers", () => {
     );
   });
 });
+
+describe("Tricrypto-NG lp_price", () => {
+  it("matches chain when the stored oracle equals the price_oracle view (TriCRV)", () => {
+    const c = (ngCases.tricrypto as NgCase[]).find((x) => x.name === "TriCRV")!;
+    const oracle = big(c.price_oracle as string[]) as [bigint, bigint];
+    expect(tricryptoNg.lpPrice(BigInt(c.virtual_price), oracle)).toBe(BigInt(c.lp_price));
+  });
+});
