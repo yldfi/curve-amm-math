@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0](https://github.com/yldfi/curve-amm-math/compare/v1.3.0...v1.4.0) (2026-10-06)
+
+
+### Features
+
+* add exact StableSwap liquidity math (legacy, plain, NG) ([78cf484](https://github.com/yldfi/curve-amm-math/commit/78cf484636e3a555fed7c682aa13a1a7e0986fa8))
+* add exact Tricrypto-NG and Twocrypto-NG math ([042996a](https://github.com/yldfi/curve-amm-math/commit/042996a38e96bd1c8381c99c59a83f883f32cc1e))
+* add fee-free marginal rates and pool-spot LP value ([d6907ed](https://github.com/yldfi/curve-amm-math/commit/d6907ed51d43aea15a40ee2fc55e646531bebe26))
+
+
+### Bug Fixes
+
+* port classic CryptoSwap newton_D and liquidity math exactly ([9b0b90f](https://github.com/yldfi/curve-amm-math/commit/9b0b90fc3a1de664aa83f400ddc394a64be631bd)), closes [#8](https://github.com/yldfi/curve-amm-math/issues/8)
+
 ## [1.3.0](https://github.com/yldfi/curve-amm-math/compare/v1.2.0...v1.3.0) (2026-06-21)
 
 
