@@ -17,7 +17,7 @@
 
 - **StableSwap math** - For pegged asset pools (stablecoins, liquid staking tokens)
 - **Exact precision mode** - Match on-chain results within ±1 wei for all StableSwap pool types
-- **CryptoSwap math** - For volatile asset pairs (Twocrypto-NG, Tricrypto-NG)
+- **CryptoSwap math** - Exact (to the wei) quotes for classic CryptoSwap pools: 2-coin CurveCryptoSwap2 factory pools and tricrypto2
 - **YieldBasis virtual pool math** - For YieldBasis stablecoin <-> asset virtual pool quotes
 - **LlamaLend LLAMMA math** - For Curve LlamaLend borrowed token <-> collateral AMM quotes
 - **triCRV helpers** - Classic 3pool exact StableSwap helpers (DAI/USDC/USDT)
@@ -79,7 +79,7 @@ const virtualPrice = stableswap.getVirtualPrice(balances, Ann, totalSupply);
 ```typescript
 import { cryptoswap } from '@yldfi/curve-amm-math';
 
-// 2-coin pool (Twocrypto-NG)
+// 2-coin pool (CurveCryptoSwap2, e.g. cvxCRV/crvFRAX)
 const params: cryptoswap.TwocryptoParams = {
   A: 400000n,
   gamma: 145000000000000n,
@@ -95,7 +95,12 @@ const params: cryptoswap.TwocryptoParams = {
 const dy = cryptoswap.getDy(params, 0, 1, 10n * 10n**18n);
 const lpPrice = cryptoswap.lpPrice(params, totalSupply);
 
-// 3-coin pool (Tricrypto-NG)
+// Liquidity: same results as the pool's views / state-changing calls
+const lpOut = cryptoswap.calcTokenAmount(params, [0n, 10n * 10n**18n], totalSupply);
+const minted = cryptoswap.calcAddLiquidity(params, [0n, 10n * 10n**18n], totalSupply).lpMinted;
+const coinOut = cryptoswap.calcWithdrawOneCoin(params, lpOut, 0, totalSupply);
+
+// 3-coin pool (tricrypto2)
 const params3: cryptoswap.TricryptoParams = {
   A: 2700n,
   gamma: 1300000000000n,
@@ -347,14 +352,34 @@ interface ExactPoolParams {
 
 ### CryptoSwap - Core Functions (2-coin)
 
+The `cryptoswap` module ports the classic (pre-NG) contracts: CurveCryptoSwap2
+for 2 coins and tricrypto2 for 3 coins. Results match the on-chain views to the
+wei (fixture tests at pinned blocks). Twocrypto-NG and Tricrypto-NG pools use
+different math and are not covered by this module.
+
+`params.D` is the pool's stored `D()`. Set `futureAGammaTime` to the pool's
+`future_A_gamma_time()` when it is non-zero: the contract then recomputes D
+from the balances, and so does this module.
+
 | Function | Description |
 |----------|-------------|
+| `newtonD(A, gamma, xp)` / `calcD(...)` | Invariant D (Vyper `newton_D`) |
 | `newtonY(A, gamma, x, D, i)` | Newton's method for CryptoSwap |
-| `getDy(params, i, j, dx)` | Swap output after fees |
+| `getDy(params, i, j, dx)` | Swap output after fees (`get_dy`) |
 | `getDx(params, i, j, dy)` | Input needed for desired output |
-| `dynamicFee(xp, feeGamma, midFee, outFee)` | K-based dynamic fee |
-| `calcTokenAmount(params, amounts, totalSupply)` | LP tokens for deposit |
-| `calcWithdrawOneCoin(params, lpAmount, i, totalSupply)` | Single-coin withdrawal |
+| `dynamicFee(xp, feeGamma, midFee, outFee)` | K-based dynamic fee (`fee()`) |
+| `calcTokenAmount(params, amounts, totalSupply)` | `calc_token_amount` view, deposit fee included |
+| `calcAddLiquidity(params, amounts, totalSupply)` | LP minted by `add_liquidity`, plus fee, D, new supply |
+| `calcWithdrawOneCoin(params, lpAmount, i, totalSupply)` | `calc_withdraw_one_coin` view |
+| `calcRemoveLiquidityOneCoin(params, lpAmount, i, totalSupply)` | `remove_liquidity_one_coin` (starts from stored D) |
+| `calcRemoveLiquidity(params, lpAmount, totalSupply)` | Balanced `remove_liquidity` (pays on `lpAmount - 1`) |
+| `calcTokenFee(amounts, xp, feeGamma, midFee, outFee)` | Imbalanced-deposit fee (`_calc_token_fee`) |
+| `geometricMean(x, sort?)`, `getXcp(D, priceScale)` | Helpers used by the above |
+
+`add_liquidity` and `remove_liquidity_one_coin` may also claim admin fees
+(`mint_relative` to the fee receiver) and move `price_scale` in `tweak_price`.
+That does not change the amount the call itself mints or pays out, but it
+changes `totalSupply` and `D` for the next call.
 
 ### CryptoSwap - 3-coin Functions
 
@@ -363,15 +388,19 @@ interface ExactPoolParams {
 | `newtonY3(A, gamma, x, D, i)` | Newton's method for 3-coin |
 | `getDy3(params, i, j, dx)` | 3-coin swap output |
 | `getDx3(params, i, j, dy)` | 3-coin input calculation |
-| `calcTokenAmount3(params, amounts, totalSupply)` | 3-coin LP calculation |
-| `calcWithdrawOneCoin3(params, lpAmount, i, totalSupply)` | 3-coin single-coin withdrawal |
+| `calcTokenAmount3(params, amounts, totalSupply, deposit?)` | `calc_token_amount(amounts, deposit)` view |
+| `calcAddLiquidity3(params, amounts, totalSupply)` | LP minted by `add_liquidity` |
+| `calcWithdrawOneCoin3(params, lpAmount, i, totalSupply)` | `calc_withdraw_one_coin` view |
+| `calcRemoveLiquidityOneCoin3(params, lpAmount, i, totalSupply)` | `remove_liquidity_one_coin` |
+| `calcRemoveLiquidity3(params, lpAmount, totalSupply)` | Balanced `remove_liquidity` |
 
 ### CryptoSwap - Price Functions
 
 | Function | Description |
 |----------|-------------|
-| `getVirtualPrice(params, totalSupply)` / `getVirtualPrice3(...)` | Virtual price of LP token |
-| `lpPrice(params, totalSupply)` / `lpPrice3(...)` | LP token price in token 0 |
+| `getVirtualPrice(params, totalSupply)` / `getVirtualPrice3(...)` | `get_virtual_price()`: `1e18 * xcp(D) / totalSupply` |
+| `lpPriceFromOracle(virtualPrice, priceOracle)` | 2-coin `lp_price()` |
+| `lpPrice(params, totalSupply)` / `lpPrice3(...)` | Pro-rata pool value per LP in token 0 at price_scale |
 | `getSpotPrice(params, i, j)` / `getSpotPrice3(...)` | Instantaneous price |
 | `getEffectivePrice(params, i, j, dx)` / `getEffectivePrice3(...)` | Actual price |
 | `getPriceImpact(params, i, j, dx)` / `getPriceImpact3(...)` | Price impact (bps) |

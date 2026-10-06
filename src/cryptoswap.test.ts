@@ -679,14 +679,13 @@ describe("Tricrypto (3-coin) Math", () => {
       expect(vp).toBe(PRECISION);
     });
 
-    it("should return D/totalSupply for non-empty pool", () => {
+    it("should return xcp(D)/totalSupply for non-empty pool", () => {
       const params = createTricryptoParams();
-      const totalSupply = 3000000n * 10n ** 18n;
+      // xcp = geometric_mean(D / 3 at each price_scale) = 1M; LP minted as xcp
+      const totalSupply = 1000000n * 10n ** 18n;
       const vp = getVirtualPrice3(params, totalSupply);
 
-      // Virtual price should be close to PRECISION for balanced pool
-      expect(vp).toBeGreaterThan(PRECISION - 10n ** 16n);
-      expect(vp).toBeLessThan(PRECISION * 2n);
+      expect(vp).toBe(PRECISION);
     });
   });
 
@@ -717,10 +716,10 @@ describe("Tricrypto (3-coin) Math", () => {
 
       const [amount0, amount1, amount2] = calcRemoveLiquidity3(params, lpAmount, totalSupply);
 
-      // Should get 10% of each balance
-      expect(amount0).toBe(100000n * 10n ** 18n);
-      expect(amount1).toBe(100000n * 10n ** 18n);
-      expect(amount2).toBe(100000n * 10n ** 18n);
+      // 10% of each balance, paid on lpAmount - 1 as in the contract
+      expect(amount0).toBe(100000n * 10n ** 18n - 1n);
+      expect(amount1).toBe(100000n * 10n ** 18n - 1n);
+      expect(amount2).toBe(100000n * 10n ** 18n - 1n);
     });
 
     it("should return zero for empty pool", () => {
@@ -884,12 +883,12 @@ describe("CryptoSwap Additional Functions (2-coin)", () => {
       expect(vp).toBe(PRECISION);
     });
 
-    it("should return D/totalSupply for non-empty pool", () => {
+    it("should return xcp(D)/totalSupply for non-empty pool", () => {
       const params = createParams();
-      const vp = getVirtualPrice(params, totalSupply);
-
-      expect(vp).toBeGreaterThan(PRECISION - 10n ** 16n);
-      expect(vp).toBeLessThan(PRECISION * 2n);
+      // xcp = geometric_mean(D / 2, D / (2 * price_scale)) = 1M
+      expect(getVirtualPrice(params, 1000000n * 10n ** 18n)).toBe(PRECISION);
+      // Twice the supply halves the virtual price
+      expect(getVirtualPrice(params, totalSupply)).toBe(PRECISION / 2n);
     });
   });
 
@@ -917,9 +916,9 @@ describe("CryptoSwap Additional Functions (2-coin)", () => {
 
       const [amount0, amount1] = calcRemoveLiquidity(params, lpAmount, totalSupply);
 
-      // Should get 10% of each balance
-      expect(amount0).toBe(100000n * 10n ** 18n);
-      expect(amount1).toBe(100000n * 10n ** 18n);
+      // 10% of each balance, paid on lpAmount - 1 as in the contract
+      expect(amount0).toBe(100000n * 10n ** 18n - 1n);
+      expect(amount1).toBe(100000n * 10n ** 18n - 1n);
     });
 
     it("should return zero for empty pool", () => {

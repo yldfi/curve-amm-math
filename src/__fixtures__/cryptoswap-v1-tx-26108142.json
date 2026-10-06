@@ -1,0 +1,47 @@
+{
+  "description": "CurveCryptoSwap2 cvxCRV/crvFRAX pool state at block 26108141 (parent of tx 0xd4b4a8f974cd28593f0864c934b5d7d03e753454820e26413db1ac1e6386ce38), with on-chain view results at that block and the amounts the tx actually minted and withdrew",
+  "pool": "0x31c325a01861c7dbd331a9270296a31296d797a0",
+  "lpToken": "0x527331f3f550f6f85acfecab9cc0889180c6f1d5",
+  "block": 26108141,
+  "tx": "0xd4b4a8f974cd28593f0864c934b5d7d03e753454820e26413db1ac1e6386ce38",
+  "coins": ["cvxCRV 0x62b9c7356a2dc64a1969e19c23e4f579f9810aa7", "crvFRAX 0x3175df0976dfa876431c2e9ee6bc45b65d3473cc"],
+  "state": {
+    "A": "400000",
+    "gamma": "145000000000000",
+    "D": "96472218132016901206816",
+    "priceScale": "6178426231898967021",
+    "priceOracle": "6634924251145473311",
+    "virtualPrice": "1071315871924746133",
+    "midFee": "26000000",
+    "outFee": "45000000",
+    "feeGamma": "230000000000000",
+    "futureAGammaTime": "0",
+    "balances": ["50288399998817911607072", "7483501834450506197545"],
+    "totalSupply": "18114059769471428522796"
+  },
+  "views": {
+    "fee": "42806606",
+    "get_virtual_price": "1071315871924746133",
+    "lp_price": "5519065132501853932",
+    "calc_token_amount": [
+      { "amounts": ["0", "45897428430796764353"], "result": "54894652463985137858" },
+      { "amounts": ["100000000000000000000", "0"], "result": "18105481313714180759" },
+      { "amounts": ["3000000000000000000000", "500000000000000000000"], "result": "1144754984874312261462" }
+    ],
+    "calc_withdraw_one_coin": [
+      { "tokenAmount": "1000000000000000000", "i": 0, "result": "5496411836423172163" },
+      { "tokenAmount": "1000000000000000000", "i": 1, "result": "831118095914164119" },
+      { "tokenAmount": "500000000000000000000", "i": 0, "result": "2707847763589905641963" }
+    ],
+    "get_dy": [
+      { "i": 0, "j": 1, "dx": "1000000000000000000000", "result": "147399744037859249749" },
+      { "i": 1, "j": 0, "dx": "45897428430796764353", "result": "300274273026552910005" }
+    ]
+  },
+  "txResult": {
+    "addLiquidity": { "amounts": ["0", "45897428430796764353"], "minted": "54894652463985137858" },
+    "adminFeeClaimDuringAdd": "31312243031669309",
+    "removeLiquidityOneCoin": { "tokenAmount": "54894652463985137858", "i": 0, "dy": "300264963797689634835" },
+    "adminFeeClaimDuringRemove": "31098990365656905"
+  }
+}
