@@ -11,12 +11,7 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/@yldfi/curve-amm-math"><img src="https://badge.fury.io/js/@yldfi%2Fcurve-amm-math.svg" alt="npm version"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
-</p>
-
-<p align="center">
-
-[![Socket Badge](https://badge.socket.dev/npm/package/@yldfi/curve-amm-math/1.5.1)](https://badge.socket.dev/npm/package/@yldfi/curve-amm-math/1.5.1) <!-- x-release-please-version -->
-
+  <a href="https://socket.dev/npm/package/@yldfi/curve-amm-math"><img src="https://badge.socket.dev/npm/package/@yldfi/curve-amm-math/1.5.1" alt="Socket Badge"></a> <!-- x-release-please-version -->
 </p>
 
 ## Features
