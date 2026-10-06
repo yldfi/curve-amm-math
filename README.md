@@ -377,6 +377,11 @@ from the balances, and so does this module.
 | `calcTokenFee(amounts, xp, feeGamma, midFee, outFee)` | Imbalanced-deposit fee (`_calc_token_fee`) |
 | `geometricMean(x, sort?)`, `getXcp(D, priceScale)` | Helpers used by the above |
 
+The retired tricrypto v1 (0x80466c64…) is covered by the 3-coin functions:
+its math uses A_MULTIPLIER = 100 with `A_precise()`, so pass
+`A = A_precise() * 100n`, and its `calc_withdraw_one_coin` starts from the
+stored D (use `calcRemoveLiquidityOneCoin3`).
+
 `add_liquidity` and `remove_liquidity_one_coin` may also claim admin fees
 (`mint_relative` to the fee receiver) and move `price_scale` in `tweak_price`.
 That does not change the amount the call itself mints or pays out, but it
@@ -425,8 +430,7 @@ yTokens) need their current rates supplied in `rates`.
 Legacy `calc_token_amount` omits the imbalance fee that `add_liquidity`
 charges; use `calcAddLiquidityExact` for the amount minted.
 
-**Not covered:** metapools (`isMetaPool`) and the retired tricrypto v1
-(0x80466c64…).
+**Not covered:** metapools (`isMetaPool`).
 
 ### Tricrypto-NG and Twocrypto-NG
 
