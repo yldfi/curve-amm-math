@@ -11,6 +11,7 @@ interface Case {
   pool: string;
   version: string;
   MATH: string;
+  POLICY: string;
   blockTimestamp: string;
   A: string;
   gamma: string;
@@ -44,6 +45,7 @@ function toParams(c: Case): twocryptoStableswap.TwocryptoStableswapParams {
   twocryptoStableswap.assertSupportedImplementation(c.version, c.MATH);
   return {
     version: c.version,
+    policy: c.version === "v3.0.0" ? c.POLICY : undefined,
     A: BigInt(c.A),
     gamma: BigInt(c.gamma),
     D: BigInt(c.D),
@@ -125,6 +127,16 @@ describe("Twocrypto (StableswapMath) behaviour", () => {
         "0x79839c2D74531A8222C0F555865aAc1834e82e51"
       )
     ).toThrow("unsupported MATH");
+  });
+
+  it("v3.0.0 fails closed on a missing or unknown POLICY", () => {
+    expect(() => twocryptoStableswap.fee({ ...params, policy: undefined })).toThrow("need `policy`");
+    expect(() =>
+      twocryptoStableswap.fee({ ...params, policy: "0x1111111111111111111111111111111111111111" })
+    ).toThrow("unknown fee POLICY");
+    expect(
+      twocryptoStableswap.fee({ ...params, policy: twocryptoStableswap.ZERO_FEE_POLICIES[0] })
+    ).toBe(twocryptoStableswap.fee(params));
   });
 
   it("a POLICY fee replaces the dynamic fee (clamped) on v3.0.0", () => {

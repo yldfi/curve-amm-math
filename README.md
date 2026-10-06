@@ -471,8 +471,10 @@ checks version and MATH.
 
 Pass `donation` (the `donation_*` getters and block timestamp) for exact
 deposit quotes while donation protection is active, `isRamping` when
-`future_A_gamma_time > last_timestamp`, and `policyFee` for v3.0.0 pools
-whose POLICY contract sets the fee. State-changing calls claim admin fees
+`future_A_gamma_time > last_timestamp`. v3.0.0 pools also need `policy`
+(`pool.POLICY()`): the zero address and the known `YBTwocryptoPolicy`
+contracts (`ZERO_FEE_POLICIES`, whose `get_fee` is a pure `return 0`) quote
+with the pool's own fee; any other policy throws unless `policyFee` models it. State-changing calls claim admin fees
 first; pass the post-claim state when a claim is due. These pools use the
 StableSwap invariant on price-scaled balances, so `spot.cryptoSwap*` does not
 apply to them.
