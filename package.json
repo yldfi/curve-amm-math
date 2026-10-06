@@ -1,6 +1,6 @@
 {
   "name": "@yldfi/curve-amm-math",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "packageManager": "pnpm@11.5.1",
   "description": "Off-chain TypeScript implementations of Curve AMM math (StableSwap, CryptoSwap) for local quote calculations",
   "main": "dist/index.js",
