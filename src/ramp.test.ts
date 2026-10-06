@@ -7,6 +7,7 @@ import { describe, it, expect } from "vitest";
 import * as cryptoswap from "./cryptoswap";
 import * as tricryptoNg from "./tricrypto-ng";
 import * as stableswapExact from "./stableswap-exact";
+import * as twocryptoStableswap from "./twocrypto-stableswap";
 import data from "./__fixtures__/ramp-cases.json";
 
 const big = (xs: readonly string[]) => xs.map((x) => BigInt(x));
@@ -138,4 +139,39 @@ describe("StableSwap mid A ramp", () => {
       }
     });
   }
+});
+
+describe("Twocrypto on StableswapMath mid-ramp (isRamping)", () => {
+  const c = data.twocryptoStableswap;
+  it(`${c.name} @${c.block}`, () => {
+    // these pools define ramping as future_A_gamma_time > last_timestamp
+    expect(BigInt(c.future_A_gamma_time)).toBeGreaterThan(BigInt(c.last_timestamp));
+    const params = (isRamping: boolean): twocryptoStableswap.TwocryptoStableswapParams => ({
+      version: c.version as twocryptoStableswap.TwocryptoStableswapVersion,
+      A: BigInt(c.A),
+      gamma: BigInt(c.gamma),
+      D: BigInt(c.D),
+      midFee: BigInt(c.mid_fee),
+      outFee: BigInt(c.out_fee),
+      feeGamma: BigInt(c.fee_gamma),
+      priceScale: BigInt(c.price_scale),
+      balances: big(c.balances) as [bigint, bigint],
+      precisions: big(c.precisions) as [bigint, bigint],
+      totalSupply: BigInt(c.totalSupply),
+      isRamping,
+    });
+    const p = params(true);
+    for (const v of c.get_dy) {
+      expect(twocryptoStableswap.getDy(p, v.i, v.j, BigInt(v.dx))).toBe(BigInt(v.result));
+      expect(twocryptoStableswap.getDy(params(false), v.i, v.j, BigInt(v.dx))).not.toBe(BigInt(v.result));
+    }
+    for (const v of c.calc_token_amount) {
+      expect(twocryptoStableswap.calcTokenAmount(p, big(v.amounts) as [bigint, bigint], v.deposit)).toBe(
+        BigInt(v.result)
+      );
+    }
+    for (const v of c.calc_withdraw_one_coin) {
+      expect(twocryptoStableswap.calcWithdrawOneCoin(p, BigInt(v.tokenAmount), v.i)).toBe(BigInt(v.result));
+    }
+  });
 });
