@@ -9,12 +9,12 @@
  *          (0x1Fd8Af16DC4BEBd950521308D55d0543b6cDF4A1)
  * - Views: `CurveCryptoViews2Optimized`
  *
- * Exact for that implementation set ONLY: check `pool.version()` is
- * "v2.1.0" or "v2.1.1" and `pool.MATH()` is 0x1Fd8…F4A1 (see
- * {@link assertSupportedImplementation}). Twocrypto pools whose MATH is
- * Curve's StableswapMath (v2.1.0d, v3.0.0 — the YieldBasis-style pools) are
- * covered by the `twocryptoNg` module instead; v2.0.0 pools use another math
- * contract and are not covered.
+ * Exact for that implementation set ONLY: check `pool.version()` and
+ * `pool.MATH()` with {@link assertSupportedImplementation}. Also verified
+ * exact for v2.0.0 pools (MATH 0x2005…64Df), whose math and views give the
+ * same results. Twocrypto pools whose MATH is Curve's StableswapMath
+ * (v2.1.0d, v3.0.0 — the YieldBasis-style pools) are covered by the
+ * `twocryptoStableswap` module instead.
  *
  * State semantics:
  * - `D` must be the pool's STORED `D()`. The views re-solve D from balances
@@ -39,10 +39,17 @@ const MIN_A = (N_COINS ** N_COINS * A_MULTIPLIER) / 10n;
 const MAX_A = N_COINS ** N_COINS * A_MULTIPLIER * 1000n;
 
 /** `pool.version()` values this module is exact for. */
-export const SUPPORTED_POOL_VERSIONS = ["v2.1.0", "v2.1.1"] as const;
+export const SUPPORTED_POOL_VERSIONS = ["v2.0.0", "v2.1.0", "v2.1.1"] as const;
 
 /** `pool.MATH()` this module is exact for (CurveTwocryptoMathOptimized v2.1.0). */
 export const SUPPORTED_MATH_ADDRESS = "0x1fd8af16dc4bebd950521308d55d0543b6cdf4a1";
+
+/** `pool.MATH()` per supported version. */
+export const SUPPORTED_MATH_ADDRESSES: Record<(typeof SUPPORTED_POOL_VERSIONS)[number], string> = {
+  "v2.0.0": "0x2005995a71243be9fb995dab4742327dc76564df",
+  "v2.1.0": SUPPORTED_MATH_ADDRESS,
+  "v2.1.1": SUPPORTED_MATH_ADDRESS,
+};
 
 /**
  * Throws unless the given on-chain identity matches the implementation this
@@ -57,10 +64,9 @@ export function assertSupportedImplementation(version: string, mathAddress?: str
       `twocryptoOptimized: unsupported pool version "${version}" (exact only for ${SUPPORTED_POOL_VERSIONS.join(", ")})`
     );
   }
-  if (mathAddress !== undefined && mathAddress.toLowerCase() !== SUPPORTED_MATH_ADDRESS) {
-    throw new Error(
-      `twocryptoOptimized: unsupported MATH ${mathAddress} (exact only for ${SUPPORTED_MATH_ADDRESS})`
-    );
+  const expected = SUPPORTED_MATH_ADDRESSES[version as (typeof SUPPORTED_POOL_VERSIONS)[number]];
+  if (mathAddress !== undefined && mathAddress.toLowerCase() !== expected) {
+    throw new Error(`twocryptoOptimized: unsupported MATH ${mathAddress} for ${version} (expected ${expected})`);
   }
 }
 
