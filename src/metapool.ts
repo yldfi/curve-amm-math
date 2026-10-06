@@ -17,8 +17,14 @@
  * factory and NG metapools. Old `main` registry metapools cache it for 10
  * minutes: use `base_virtual_price()` while
  * `base_cache_updated() + 600 >= block.timestamp`, else the live value.
+ *
+ * Crypto metapools (`factory-crypto` `metacrypto`: a CurveCryptoSwap2 pool of
+ * [coin, base LP]) are covered by the `crypto*` functions below, which port
+ * the factory crypto-meta zaps (e.g. 0x5De4EF48… for FRAXBP, 0x97aDC08F… for
+ * 3pool). Their pool-level math is the `cryptoswap` module.
  */
 
+import * as cryptoswap from "./cryptoswap";
 import {
   calcAddLiquidityExact,
   calcTokenAmountExact,
@@ -178,4 +184,114 @@ export function calcAddLiquidityUnderlying(
     }
   }
   return calcAddLiquidityExact({ ...meta, rates }, [amounts[0], baseMinted]).lpAmount;
+}
+
+// ============================================
+// Crypto metapools (CurveCryptoSwap2 [coin, base LP] + crypto-meta zap)
+// ============================================
+
+/** A crypto metapool (CurveCryptoSwap2, coin 1 = base LP) and its base pool. */
+export interface CryptoMetapoolParams {
+  /** The crypto pool; `totalSupply` of its LP is passed separately */
+  meta: cryptoswap.TwocryptoParams;
+  /** The crypto pool's LP totalSupply */
+  metaTotalSupply: bigint;
+  /** The base StableSwap pool */
+  base: StableLiquidityParams;
+}
+
+function checkCryptoIndex(params: CryptoMetapoolParams, i: number, name: string): void {
+  if (i < 0 || i > params.base.balances.length) {
+    throw new Error(`metapool.${name}: index out of bounds (i=${i})`);
+  }
+}
+
+/**
+ * Crypto-meta zap `get_dy(pool, i, j, dx)`: 0 = the crypto pool's coin,
+ * 1..N = base coins. Meta → base swaps into base LP and withdraws one coin;
+ * base → meta deposits via the base `calc_token_amount` view and swaps; base →
+ * base is the base pool's `get_dy`.
+ */
+export function cryptoGetDyUnderlying(params: CryptoMetapoolParams, i: number, j: number, dx: bigint): bigint {
+  checkCryptoIndex(params, i, "cryptoGetDyUnderlying");
+  checkCryptoIndex(params, j, "cryptoGetDyUnderlying");
+  if (i === j) throw new Error("metapool.cryptoGetDyUnderlying: i and j must differ");
+  const { meta, base } = params;
+  if (i === 0) {
+    const lp = cryptoswap.getDy(meta, 0, 1, dx);
+    return calcWithdrawOneCoinExact(base, lp, j - 1)[0];
+  }
+  if (j === 0) {
+    const baseInputs = base.balances.map((_, k) => (k === i - 1 ? dx : 0n));
+    const lp = calcTokenAmountExact(base, baseInputs, true);
+    return cryptoswap.getDy(meta, 1, 0, lp);
+  }
+  return getDyVariant(base, i - 1, j - 1, dx);
+}
+
+/**
+ * Crypto-meta zap `calc_token_amount(pool, amounts)`: base coins through the
+ * base `calc_token_amount` view, then the crypto pool's `calc_token_amount`.
+ */
+export function cryptoCalcTokenAmountUnderlying(params: CryptoMetapoolParams, amounts: bigint[]): bigint {
+  const { meta, base } = params;
+  if (amounts.length !== base.balances.length + 1) {
+    throw new Error("metapool.cryptoCalcTokenAmountUnderlying: amounts must cover the meta coin and every base coin");
+  }
+  const baseAmounts = amounts.slice(1);
+  const baseTokens = baseAmounts.some((a) => a > 0n) ? calcTokenAmountExact(base, baseAmounts, true) : 0n;
+  return cryptoswap.calcTokenAmount(meta, [amounts[0], baseTokens], params.metaTotalSupply);
+}
+
+/**
+ * Crypto-meta zap `calc_withdraw_one_coin(pool, token_amount, i)`.
+ */
+export function cryptoCalcWithdrawOneCoinUnderlying(
+  params: CryptoMetapoolParams,
+  tokenAmount: bigint,
+  i: number
+): bigint {
+  checkCryptoIndex(params, i, "cryptoCalcWithdrawOneCoinUnderlying");
+  const { meta, base, metaTotalSupply } = params;
+  if (i === 0) return cryptoswap.calcWithdrawOneCoin(meta, tokenAmount, 0, metaTotalSupply);
+  const baseTokens = cryptoswap.calcWithdrawOneCoin(meta, tokenAmount, 1, metaTotalSupply);
+  return calcWithdrawOneCoinExact(base, baseTokens, i - 1)[0];
+}
+
+/**
+ * LP minted by the crypto-meta zap's `add_liquidity(pool, amounts)`: the
+ * exact base mint, then the crypto pool's `add_liquidity` of
+ * `[amounts[0], baseLpMinted + zapBaseLpDust]` (the zap deposits its whole
+ * base-LP balance).
+ */
+export function cryptoCalcAddLiquidityUnderlying(
+  params: CryptoMetapoolParams,
+  amounts: bigint[],
+  zapBaseLpDust: bigint = 0n
+): bigint {
+  const { meta, base } = params;
+  if (amounts.length !== base.balances.length + 1) {
+    throw new Error("metapool.cryptoCalcAddLiquidityUnderlying: amounts must cover the meta coin and every base coin");
+  }
+  const baseAmounts = amounts.slice(1);
+  const baseMinted = baseAmounts.some((a) => a > 0n) ? calcAddLiquidityExact(base, baseAmounts).lpAmount : 0n;
+  return cryptoswap.calcAddLiquidity(meta, [amounts[0], baseMinted + zapBaseLpDust], params.metaTotalSupply)
+    .lpMinted;
+}
+
+/**
+ * Coin paid by the crypto-meta zap's `remove_liquidity_one_coin(pool,
+ * burn_amount, i)`: the crypto pool's `remove_liquidity_one_coin` (stored D),
+ * then for base coins the base `remove_liquidity_one_coin`.
+ */
+export function cryptoRemoveLiquidityOneCoinUnderlying(
+  params: CryptoMetapoolParams,
+  burnAmount: bigint,
+  i: number
+): bigint {
+  checkCryptoIndex(params, i, "cryptoRemoveLiquidityOneCoinUnderlying");
+  const { meta, base, metaTotalSupply } = params;
+  if (i === 0) return cryptoswap.calcRemoveLiquidityOneCoin(meta, burnAmount, 0, metaTotalSupply).dy;
+  const baseTokens = cryptoswap.calcRemoveLiquidityOneCoin(meta, burnAmount, 1, metaTotalSupply).dy;
+  return calcWithdrawOneCoinExact(base, baseTokens, i - 1)[0];
 }

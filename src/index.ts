@@ -99,7 +99,7 @@ export type { TricryptoNgParams } from "./tricrypto-ng";
 
 // StableSwap metapools: underlying swaps and factory-zap liquidity, exact
 export * as metapool from "./metapool";
-export type { MetapoolParams } from "./metapool";
+export type { MetapoolParams, CryptoMetapoolParams } from "./metapool";
 
 // Fee-free marginal rates and pool-spot LP valuation (StableSwap, CryptoSwap)
 export * as spot from "./spot";
