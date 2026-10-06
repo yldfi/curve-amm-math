@@ -56,6 +56,15 @@ interface CryptoPoolParamsBase {
   outFee: bigint;
   /** Fee gamma parameter for fee interpolation */
   feeGamma: bigint;
+  /**
+   * The pool's `future_A_gamma_time()`. Zero (the default) for a pool that
+   * has never ramped A/gamma. When it is non-zero the 2-coin contract
+   * recomputes D from the balances (`newton_D`) instead of reading the stored
+   * `D` in `get_dy`, `calc_token_amount`, `add_liquidity` and
+   * `remove_liquidity_one_coin`; tricrypto2 does so in `add_liquidity` and
+   * `remove_liquidity_one_coin`.
+   */
+  futureAGammaTime?: bigint;
 }
 
 /**
@@ -232,7 +241,7 @@ export function newtonY(
 
 /**
  * Newton's method to find y in 3-coin CryptoSwap invariant
- * Based on Tricrypto-NG Vyper source
+ * Direct translation of the tricrypto2 math contract's newton_y()
  *
  * @param A - Raw A parameter from pool
  * @param gamma - gamma parameter
@@ -248,7 +257,6 @@ export function newtonY3(
   i: number
 ): bigint {
   const N_COINS = 3n;
-  const N_COINS_POW = 27n; // 3^3
 
   // Guard against invalid index
   if (i < 0 || i > 2) {
@@ -269,51 +277,42 @@ export function newtonY3(
     throw new Error("newtonY3: D cannot be zero");
   }
 
-  // Sum and product of other balances (excluding i)
-  let S = 0n;
-  let prod = PRECISION;
+  // Guard against zero balances among the other coins
   for (let k = 0; k < 3; k++) {
-    if (k !== i) {
-      // Guard against zero balance
-      if (x[k] === 0n) {
-        throw new Error(`newtonY3: zero balance at index ${k} would cause division by zero`);
-      }
-      S += x[k];
-      prod = (prod * x[k]) / PRECISION;
+    if (k !== i && x[k] === 0n) {
+      throw new Error(`newtonY3: zero balance at index ${k} would cause division by zero`);
     }
   }
 
-  // Guard against tiny liquidity where D^2/PRECISION would be 0
-  const D_squared = D * D;
-  const D_squared_scaled = D_squared / PRECISION;
-  if (D_squared_scaled === 0n) {
-    throw new Error("newtonY3: D is too small (D^2/PRECISION = 0), pool has insufficient liquidity");
-  }
+  // x_sorted: x with x[i] zeroed, sorted from high to low
+  const x_sorted = sortDesc(x.map((v, k) => (k === i ? 0n : v)));
 
-  // Guard against zero prod (shouldn't happen given balance checks, but be safe)
-  if (prod === 0n) {
-    throw new Error("newtonY3: prod is zero, balances too small");
-  }
-
-  // Initial guess: y = D^3 / (N^N * prod(x_k for k != i))
-  let y = (((D * D) / prod) * D) / (N_COINS_POW * PRECISION);
-
-  // K0_i = (10^18 * N^(N-1)) * prod(x_k for k != i) / D^(N-1)
-  // For N=3: K0_i = 9 * 10^18 * prod / D^2
-  const K0_i = (PRECISION * 9n * prod) / D_squared_scaled;
-
-  // Convergence limit
   const convergence_limit = (() => {
-    let max_val = D / CONVERGENCE_THRESHOLD;
-    for (let k = 0; k < 3; k++) {
-      if (k !== i) {
-        const val = x[k] / CONVERGENCE_THRESHOLD;
-        if (val > max_val) max_val = val;
-      }
-    }
-    if (max_val < MIN_CONVERGENCE) max_val = MIN_CONVERGENCE;
-    return max_val;
+    const a = x_sorted[0] / CONVERGENCE_THRESHOLD;
+    const b = D / CONVERGENCE_THRESHOLD;
+    let max = a > b ? a : b;
+    if (max < MIN_CONVERGENCE) max = MIN_CONVERGENCE;
+    return max;
   })();
+
+  // Initial guess y = D^N / (N^N * prod(x_k, k != i)), small x first;
+  // K0_i = 10^18 * prod(x_k * N / D, k != i), large x first
+  let y = D / N_COINS;
+  let K0_i = PRECISION;
+  let S = 0n;
+  for (let j = 2; j <= 3; j++) {
+    const _x = x_sorted[3 - j];
+    y = (y * D) / (_x * N_COINS);
+    S += _x;
+  }
+  for (let j = 0; j < 2; j++) {
+    K0_i = (K0_i * x_sorted[j] * N_COINS) / D;
+  }
+
+  // Guard against y = 0 (tiny D relative to the balances)
+  if (y === 0n) {
+    throw new Error("newtonY3: initial y estimate is zero (D too small relative to balances)");
+  }
 
   for (let j = 0; j < MAX_ITERATIONS; j++) {
     const y_prev = y;
@@ -387,10 +386,179 @@ export function newtonY3(
   throw new Error("newtonY3 did not converge");
 }
 
+/** Sort from high to low (Vyper `sort`). */
+function sortDesc(x: readonly bigint[]): bigint[] {
+  return [...x].sort((a, b) => (a > b ? -1 : a < b ? 1 : 0));
+}
+
 /**
- * Calculate D invariant for N-coin CryptoSwap using Newton's method
+ * Geometric mean (x[0] * x[1] * ...) ** (1/N).
+ * Direct translation of Vyper `geometric_mean(unsorted_x, sort)`: the 2-coin
+ * pools use the collapsed iteration `D = (D + x0 * x1 / D) / 2`, the 3-coin
+ * math contract the generic one.
  *
- * @param A - Amplification parameter
+ * @param unsortedX - Values (2 or 3)
+ * @param sort - Sort from high to low first (the Vyper default)
+ */
+export function geometricMean(unsortedX: bigint[], sort: boolean = true): bigint {
+  const x = sort ? sortDesc(unsortedX) : unsortedX;
+  const N = BigInt(x.length);
+  let D = x[0];
+  if (D === 0n) {
+    throw new Error("geometricMean: zero value would cause division by zero");
+  }
+
+  for (let i = 0; i < MAX_ITERATIONS; i++) {
+    const D_prev = D;
+    if (x.length === 2) {
+      D = (D + (x[0] * x[1]) / D) / N;
+    } else {
+      let tmp = PRECISION;
+      for (const _x of x) {
+        tmp = (tmp * _x) / D;
+      }
+      D = (D * ((N - 1n) * PRECISION + tmp)) / (N * PRECISION);
+    }
+    if (D === 0n) {
+      throw new Error("geometricMean: zero value would cause division by zero");
+    }
+    const diff = D > D_prev ? D - D_prev : D_prev - D;
+    if (diff <= 1n || diff * PRECISION < D) {
+      return D;
+    }
+  }
+
+  throw new Error("geometricMean did not converge");
+}
+
+/**
+ * CryptoSwap invariant D by Newton's method.
+ * Direct translation of Vyper `newton_D(ANN, gamma, x_unsorted)` from
+ * CurveCryptoSwap2 (2 coins) and the tricrypto2 math contract (3 coins):
+ * it starts from `N * geometric_mean(x)`, iterates on the sorted balances and
+ * stops when `diff * 10**14 < max(10**16, D)`.
+ *
+ * The contract's safety asserts on the balances are mirrored as errors
+ * ("unsafe values"). Its A/gamma range asserts are not: their constants
+ * differ between deployments.
+ *
+ * @param A - On-chain `A()` (already A * N**N * A_MULTIPLIER)
+ * @param gamma - On-chain `gamma()`
+ * @param xUnsorted - Scaled balances (2 or 3 coins)
+ * @returns D invariant
+ */
+export function newtonD(A: bigint, gamma: bigint, xUnsorted: bigint[]): bigint {
+  if (A === 0n) {
+    throw new Error("newtonD: A parameter cannot be zero");
+  }
+  if (gamma === 0n) {
+    throw new Error("newtonD: gamma parameter cannot be zero");
+  }
+  if (xUnsorted.length !== 2 && xUnsorted.length !== 3) {
+    throw new Error(`newtonD: pool must have 2 or 3 coins (got ${xUnsorted.length})`);
+  }
+
+  const N = BigInt(xUnsorted.length);
+  const x = sortDesc(xUnsorted);
+
+  if (x[0] < 10n ** 9n || x[0] > 10n ** 33n) {
+    throw new Error("newtonD: unsafe values x[0]");
+  }
+  // x[i] / x[0] >= 1e-4 (2 coins) or 1e-7 (3 coins)
+  const minFrac = x.length === 2 ? 10n ** 14n : 10n ** 11n;
+  for (let i = 1; i < x.length; i++) {
+    if ((x[i] * PRECISION) / x[0] < minFrac) {
+      throw new Error("newtonD: unsafe values x[i] (input)");
+    }
+  }
+
+  // Initial value of invariant D is that for constant-product invariant
+  let D = N * geometricMean(x, false);
+  let S = 0n;
+  for (const x_i of x) {
+    S += x_i;
+  }
+
+  for (let i = 0; i < MAX_ITERATIONS; i++) {
+    const D_prev = D;
+
+    let K0: bigint;
+    if (x.length === 2) {
+      // collapsed for 2 coins
+      K0 = (((PRECISION * N * N * x[0]) / D) * x[1]) / D;
+    } else {
+      K0 = PRECISION;
+      for (const _x of x) {
+        K0 = (K0 * _x * N) / D;
+      }
+    }
+    if (K0 === 0n) {
+      throw new Error("newtonD: unsafe values (K0 is zero)");
+    }
+
+    // _g1k0 = |gamma + 10^18 - K0| + 1
+    let _g1k0 = gamma + PRECISION;
+    if (_g1k0 > K0) {
+      _g1k0 = _g1k0 - K0 + 1n;
+    } else {
+      _g1k0 = K0 - _g1k0 + 1n;
+    }
+
+    // D / (A * N**N) * _g1k0**2 / gamma**2
+    const mul1 = (((((PRECISION * D) / gamma) * _g1k0) / gamma) * _g1k0 * A_MULTIPLIER) / A;
+
+    // 2*N*K0 / _g1k0
+    const mul2 = (2n * PRECISION * N * K0) / _g1k0;
+
+    const neg_fprime = S + (S * mul2) / PRECISION + (mul1 * N) / K0 - (mul2 * D) / PRECISION;
+    if (neg_fprime <= 0n) {
+      throw new Error("newtonD: unsafe values (neg_fprime is not positive)");
+    }
+
+    // D -= f / fprime
+    const D_plus = (D * (neg_fprime + S)) / neg_fprime;
+    let D_minus = (D * D) / neg_fprime;
+    if (PRECISION > K0) {
+      D_minus += (((D * (mul1 / neg_fprime)) / PRECISION) * (PRECISION - K0)) / K0;
+    } else {
+      D_minus -= (((D * (mul1 / neg_fprime)) / PRECISION) * (K0 - PRECISION)) / K0;
+      if (D_minus < 0n) {
+        throw new Error("newtonD: unsafe values (D_minus underflow)");
+      }
+    }
+
+    if (D_plus > D_minus) {
+      D = D_plus - D_minus;
+    } else {
+      D = (D_minus - D_plus) / 2n;
+    }
+    if (D === 0n) {
+      throw new Error("newtonD: unsafe values (D is zero)");
+    }
+
+    const diff = D > D_prev ? D - D_prev : D_prev - D;
+    if (diff * CONVERGENCE_THRESHOLD < (D > 10n ** 16n ? D : 10n ** 16n)) {
+      // Test that we are safe with the next newton_y
+      for (const _x of x) {
+        const frac = (_x * PRECISION) / D;
+        if (frac < 10n ** 16n || frac > 10n ** 20n) {
+          throw new Error("newtonD: unsafe values x[i]");
+        }
+      }
+      return D;
+    }
+  }
+
+  throw new Error("newtonD did not converge");
+}
+
+/**
+ * Calculate D invariant for a 2- or 3-coin CryptoSwap pool.
+ *
+ * Validated wrapper around {@link newtonD}: an empty pool (all balances
+ * zero) returns 0n.
+ *
+ * @param A - On-chain `A()`
  * @param gamma - Gamma parameter
  * @param xp - Scaled balances
  * @returns D invariant
@@ -407,9 +575,6 @@ export function calcD(A: bigint, gamma: bigint, xp: bigint[]): bigint {
     throw new Error("calcD: pool must have at least 2 coins");
   }
 
-  const N = BigInt(xp.length);
-  const N_POW = N ** N;
-
   let S = 0n;
   for (const x of xp) {
     S += x;
@@ -425,52 +590,7 @@ export function calcD(A: bigint, gamma: bigint, xp: bigint[]): bigint {
     }
   }
 
-  let D = S;
-
-  for (let i = 0; i < MAX_ITERATIONS; i++) {
-    const D_prev = D;
-
-    // K0 = N^N * prod(x) * PRECISION / D^N
-    let K0 = N_POW * PRECISION;
-    for (const x of xp) {
-      K0 = (K0 * x) / D;
-    }
-
-    // _g1k0 = |gamma + PRECISION - K0| + 1
-    let _g1k0 = gamma + PRECISION;
-    if (_g1k0 > K0) {
-      _g1k0 = _g1k0 - K0 + 1n;
-    } else {
-      _g1k0 = K0 - _g1k0 + 1n;
-    }
-
-    const mul1 = (((((PRECISION * D) / gamma) * _g1k0) / gamma) * _g1k0 * A_MULTIPLIER) / A;
-    const mul2 = (2n * PRECISION * K0) / _g1k0;
-
-    const neg_fprime =
-      S + (S * mul2) / PRECISION + (mul1 * N) / D - (PRECISION + mul2) * N;
-
-    // Guard against neg_fprime = 0 (would cause division by zero)
-    if (neg_fprime === 0n) {
-      throw new Error("calcD: neg_fprime is zero, cannot divide");
-    }
-
-    const D_plus = (D * (neg_fprime + S)) / neg_fprime;
-    const D_minus = (D * D) / neg_fprime;
-
-    if (D_plus > D_minus) {
-      D = D_plus - D_minus;
-    } else {
-      D = (D_minus - D_plus) / 2n;
-    }
-
-    const diff = D > D_prev ? D - D_prev : D_prev - D;
-    if (diff * CONVERGENCE_THRESHOLD < D) {
-      return D;
-    }
-  }
-
-  throw new Error("calcD did not converge");
+  return newtonD(A, gamma, xp);
 }
 
 /**
@@ -489,7 +609,6 @@ export function dynamicFee(
   outFee: bigint
 ): bigint {
   const N = BigInt(xp.length);
-  const N_POW = N ** N;
 
   let sum = 0n;
   for (const x of xp) {
@@ -497,10 +616,20 @@ export function dynamicFee(
   }
   if (sum === 0n) return midFee;
 
-  // K = (PRECISION * N^N) * prod(xp) / sum^N
-  let K = PRECISION * N_POW;
-  for (const x of xp) {
-    K = (K * x) / sum;
+  // K = 10^18 * N^N * prod(xp) / sum^N, in the contract's order of operations:
+  // 2 coins (_fee): (10^18 * N^N) * x0 / S * x1 / S
+  // 3 coins (reduction_coefficient): K = K * N * x_i / S for each coin
+  let K: bigint;
+  if (xp.length === 2) {
+    K = PRECISION * N ** N;
+    for (const x of xp) {
+      K = (K * x) / sum;
+    }
+  } else {
+    K = PRECISION;
+    for (const x of xp) {
+      K = (K * N * x) / sum;
+    }
   }
 
   // Guard against zero/negative denominator
@@ -588,7 +717,8 @@ function unscaleOutput3(
 // ============================================
 
 /**
- * Off-chain implementation of Twocrypto get_dy
+ * Off-chain implementation of CurveCryptoSwap2 `get_dy` (exact: same order
+ * of operations and rounding as the contract)
  * @returns Output amount (0n for invalid inputs)
  */
 export function getDy(
@@ -602,8 +732,14 @@ export function getDy(
   if (i < 0 || i > 1 || j < 0 || j > 1) return 0n;
   if (dx === 0n) return 0n;
 
-  const { A, gamma, D, midFee, outFee, feeGamma, priceScale, balances } = params;
+  const { A, gamma, midFee, outFee, feeGamma, priceScale, balances } = params;
   const precisions = params.precisions ?? [1n, 1n];
+
+  // Stored D, or D recomputed from the current balances once A/gamma has ramped
+  let D = params.D;
+  if ((params.futureAGammaTime ?? 0n) > 0n) {
+    D = newtonD(A, gamma, scaleBalances(balances, precisions, priceScale));
+  }
 
   // Add dx to input token BEFORE scaling
   const newBalances: [bigint, bigint] = [balances[0], balances[1]];
@@ -623,19 +759,17 @@ export function getDy(
   const xp_after: [bigint, bigint] = [xp[0], xp[1]];
   xp_after[j] = y;
 
-  // Apply dynamic fee BEFORE unscaling (for precision)
-  const fee = dynamicFee(xp_after, feeGamma, midFee, outFee);
-  dy = dy - (dy * fee) / FEE_DENOMINATOR;
-  if (dy <= 0n) return 0n;
-
-  // Convert dy back to external units
+  // Convert dy back to external units, THEN charge the fee (Vyper order)
   dy = unscaleOutput2(dy, j, precisions, priceScale);
+  const fee = dynamicFee(xp_after, feeGamma, midFee, outFee);
+  dy = dy - (fee * dy) / FEE_DENOMINATOR;
 
   return dy > 0n ? dy : 0n;
 }
 
 /**
- * Off-chain implementation of Tricrypto get_dy
+ * Off-chain implementation of tricrypto2 `get_dy` (the views contract;
+ * exact: same order of operations and rounding)
  * @returns Output amount (0n for invalid inputs)
  */
 export function getDy3(
@@ -670,13 +804,10 @@ export function getDy3(
   const xp_after: [bigint, bigint, bigint] = [...xp];
   xp_after[j] = y;
 
-  // Apply dynamic fee BEFORE unscaling (for precision)
-  const fee = dynamicFee(xp_after, feeGamma, midFee, outFee);
-  dy = dy - (dy * fee) / FEE_DENOMINATOR;
-  if (dy <= 0n) return 0n;
-
-  // Convert dy back to external units
+  // Convert dy back to external units, THEN charge the fee (Vyper order)
   dy = unscaleOutput3(dy, j, precisions, priceScales);
+  const fee = dynamicFee(xp_after, feeGamma, midFee, outFee);
+  dy = dy - (fee * dy) / FEE_DENOMINATOR;
 
   return dy > 0n ? dy : 0n;
 }
@@ -894,8 +1025,194 @@ export function findPegPoint3(
 // Liquidity Functions
 // ============================================
 
+/** Flat fee added to every imbalanced-deposit fee (Vyper `NOISE_FEE`, 0.1 bps) */
+export const NOISE_FEE = 10n ** 5n;
+
 /**
- * Calculate LP tokens received for depositing amounts (2-coin)
+ * Fee charged on a deposit / imbalanced withdrawal, as a fraction of the LP
+ * amount (1e10 precision). Direct translation of Vyper `_calc_token_fee`:
+ * `fee(xp) * N / (4 * (N - 1)) * sum(|amounts_i - avg|) / sum(amounts) + NOISE_FEE`.
+ *
+ * @param amounts - Scaled deposit amounts (same units as xp)
+ * @param xp - Scaled balances AFTER the deposit
+ */
+export function calcTokenFee(
+  amounts: bigint[],
+  xp: bigint[],
+  feeGamma: bigint,
+  midFee: bigint,
+  outFee: bigint
+): bigint {
+  const N = BigInt(amounts.length);
+  const fee = (dynamicFee(xp, feeGamma, midFee, outFee) * N) / (4n * (N - 1n));
+  let S = 0n;
+  for (const _x of amounts) {
+    S += _x;
+  }
+  if (S === 0n) {
+    throw new Error("calcTokenFee: amounts sum to zero");
+  }
+  const avg = S / N;
+  let Sdiff = 0n;
+  for (const _x of amounts) {
+    Sdiff += _x > avg ? _x - avg : avg - _x;
+  }
+  return (fee * Sdiff) / S + NOISE_FEE;
+}
+
+/**
+ * Extended constant-product invariant xCP for a 2-coin pool (Vyper `get_xcp`):
+ * geometric mean of `[D / N, D * 10^18 / (N * price_scale)]`.
+ */
+export function getXcp(D: bigint, priceScale: bigint): bigint {
+  return geometricMean([D / 2n, (D * PRECISION) / (priceScale * 2n)], true);
+}
+
+/**
+ * Extended constant-product invariant xCP for a 3-coin pool (Vyper `get_xcp`).
+ */
+export function getXcp3(D: bigint, priceScales: [bigint, bigint]): bigint {
+  return geometricMean(
+    [
+      D / 3n,
+      (D * PRECISION) / (3n * priceScales[0]),
+      (D * PRECISION) / (3n * priceScales[1]),
+    ],
+    true
+  );
+}
+
+/** Result of an `add_liquidity` call */
+export interface AddLiquidityResult {
+  /** LP tokens minted to the depositor (the contract's return value) */
+  lpMinted: bigint;
+  /** LP tokens withheld as fee (`d_token_fee`; 0n for the first deposit) */
+  lpFee: bigint;
+  /** Invariant D after the deposit, before any price_scale adjustment */
+  D: bigint;
+  /** Scaled balances after the deposit */
+  xp: bigint[];
+  /** LP total supply after the mint */
+  totalSupply: bigint;
+}
+
+/** Result of a `remove_liquidity_one_coin` call */
+export interface RemoveLiquidityOneCoinResult {
+  /** Amount of coin i sent to the withdrawer (the contract's return value) */
+  dy: bigint;
+  /** Invariant D after the withdrawal, before any price_scale adjustment */
+  D: bigint;
+  /** Scaled balances after the withdrawal */
+  xp: bigint[];
+  /** Invariant D the withdrawal started from (stored or recomputed) */
+  D0: bigint;
+  /** LP-proportional share of D burned (`dD`) */
+  dD: bigint;
+}
+
+/** Shared add_liquidity math: `xpOld`/`xp` are the scaled balances before/after. */
+function addLiquidityFromXp(
+  params: CryptoPoolParamsBase,
+  amountsp: bigint[],
+  xpOld: bigint[],
+  xp: bigint[],
+  totalSupply: bigint,
+  xcp: (D: bigint) => bigint
+): AddLiquidityResult {
+  let hasAmount = false;
+  for (const a of amountsp) {
+    if (a > 0n) hasAmount = true;
+  }
+  if (!hasAmount) {
+    throw new Error("calcAddLiquidity: no coins to add");
+  }
+
+  const old_D =
+    (params.futureAGammaTime ?? 0n) > 0n ? calcD(params.A, params.gamma, xpOld) : params.D;
+  const D = newtonD(params.A, params.gamma, xp);
+
+  if (old_D === 0n) {
+    // First deposit: initial virtual price is 1
+    const lpMinted = xcp(D);
+    return { lpMinted, lpFee: 0n, D, xp, totalSupply: totalSupply + lpMinted };
+  }
+
+  let d_token = (totalSupply * D) / old_D - totalSupply;
+  if (d_token <= 0n) {
+    throw new Error("calcAddLiquidity: nothing minted");
+  }
+  const lpFee =
+    (calcTokenFee(amountsp, xp, params.feeGamma, params.midFee, params.outFee) * d_token) /
+      FEE_DENOMINATOR +
+    1n;
+  d_token -= lpFee;
+  if (d_token < 0n) {
+    throw new Error("calcAddLiquidity: fee exceeds minted amount");
+  }
+  return { lpMinted: d_token, lpFee, D, xp, totalSupply: totalSupply + d_token };
+}
+
+/**
+ * LP tokens minted by CurveCryptoSwap2 `add_liquidity` (2-coin), fee
+ * included. Exact translation of the state-changing function: the old D is
+ * the stored `params.D` (recomputed from balances when
+ * `futureAGammaTime > 0`), and the fee is `_calc_token_fee`.
+ *
+ * The contract may then adjust `price_scale` and claim admin fees
+ * (`tweak_price`); neither changes the amount minted by this call.
+ */
+export function calcAddLiquidity(
+  params: TwocryptoParams,
+  amounts: [bigint, bigint],
+  totalSupply: bigint
+): AddLiquidityResult {
+  const precisions = params.precisions ?? [1n, 1n];
+  const xpOld = scaleBalances(params.balances, precisions, params.priceScale);
+  const xp = scaleBalances(
+    [params.balances[0] + amounts[0], params.balances[1] + amounts[1]],
+    precisions,
+    params.priceScale
+  );
+  const amountsp = amounts.map((a, k) => (a > 0n ? xp[k] - xpOld[k] : 0n));
+  return addLiquidityFromXp(params, amountsp, xpOld, xp, totalSupply, (D) =>
+    getXcp(D, params.priceScale)
+  );
+}
+
+/**
+ * LP tokens minted by tricrypto2 `add_liquidity` (3-coin), fee included.
+ * Exact translation of the state-changing function (see {@link calcAddLiquidity}).
+ */
+export function calcAddLiquidity3(
+  params: TricryptoParams,
+  amounts: [bigint, bigint, bigint],
+  totalSupply: bigint
+): AddLiquidityResult {
+  const precisions = params.precisions ?? [1n, 1n, 1n];
+  const xpOld = scaleBalances3(params.balances, precisions, params.priceScales);
+  const xp = scaleBalances3(
+    [
+      params.balances[0] + amounts[0],
+      params.balances[1] + amounts[1],
+      params.balances[2] + amounts[2],
+    ],
+    precisions,
+    params.priceScales
+  );
+  const amountsp = amounts.map((a, k) => (a > 0n ? xp[k] - xpOld[k] : 0n));
+  return addLiquidityFromXp(params, amountsp, xpOld, xp, totalSupply, (D) =>
+    getXcp3(D, params.priceScales)
+  );
+}
+
+/**
+ * LP tokens received for depositing amounts (2-coin).
+ * Exact translation of the CurveCryptoSwap2 view `calc_token_amount(amounts)`,
+ * deposit fee included. D0 is the stored `params.D` (recomputed from the
+ * balances when `futureAGammaTime > 0`), as in the contract.
+ *
+ * For an empty pool (totalSupply = 0) the on-chain view reverts; this returns
+ * what the first `add_liquidity` mints (xCP of the new D).
  */
 export function calcTokenAmount(
   params: TwocryptoParams,
@@ -905,17 +1222,19 @@ export function calcTokenAmount(
   const precisions = params.precisions ?? [1n, 1n];
 
   const xp = scaleBalances(params.balances, precisions, params.priceScale);
-  const D0 = calcD(params.A, params.gamma, xp);
+  const amountsp = scaleBalances(amounts, precisions, params.priceScale);
 
-  const newBalances: [bigint, bigint] = [
-    params.balances[0] + amounts[0],
-    params.balances[1] + amounts[1],
-  ];
-  const newXp = scaleBalances(newBalances, precisions, params.priceScale);
-  const D1 = calcD(params.A, params.gamma, newXp);
+  let D0 = params.D;
+  if ((params.futureAGammaTime ?? 0n) > 0n) {
+    D0 = calcD(params.A, params.gamma, xp);
+  }
+
+  xp[0] += amountsp[0];
+  xp[1] += amountsp[1];
+  const D = calcD(params.A, params.gamma, xp);
 
   if (totalSupply === 0n) {
-    return D1;
+    return getXcp(D, params.priceScale);
   }
 
   // Guard against D0 === 0n (invalid pool state with non-zero supply)
@@ -923,46 +1242,150 @@ export function calcTokenAmount(
     throw new Error("calcTokenAmount: pool invariant D is zero");
   }
 
-  const diff = D1 - D0;
-  return (totalSupply * diff) / D0;
+  let d_token = (totalSupply * D) / D0 - totalSupply;
+  d_token -=
+    (calcTokenFee(amountsp, xp, params.feeGamma, params.midFee, params.outFee) * d_token) /
+      FEE_DENOMINATOR +
+    1n;
+  return d_token > 0n ? d_token : 0n;
 }
 
 /**
- * Calculate LP tokens received for depositing amounts (3-coin)
+ * LP tokens received for depositing amounts, or burned for withdrawing
+ * them (3-coin). Exact translation of the tricrypto2 views contract's
+ * `calc_token_amount(amounts, deposit)`, fee included; D0 is the stored
+ * `params.D`.
+ *
+ * For an empty pool (totalSupply = 0) the on-chain view reverts; this returns
+ * what the first `add_liquidity` mints (xCP of the new D).
+ *
+ * @param deposit - true for a deposit (default), false for a withdrawal
  */
 export function calcTokenAmount3(
   params: TricryptoParams,
   amounts: [bigint, bigint, bigint],
-  totalSupply: bigint
+  totalSupply: bigint,
+  deposit: boolean = true
 ): bigint {
   const precisions = params.precisions ?? [1n, 1n, 1n];
 
-  const xp = scaleBalances3(params.balances, precisions, params.priceScales);
-  const D0 = calcD(params.A, params.gamma, xp);
-
-  const newBalances: [bigint, bigint, bigint] = [
-    params.balances[0] + amounts[0],
-    params.balances[1] + amounts[1],
-    params.balances[2] + amounts[2],
-  ];
-  const newXp = scaleBalances3(newBalances, precisions, params.priceScales);
-  const D1 = calcD(params.A, params.gamma, newXp);
+  const newBalances: [bigint, bigint, bigint] = [...params.balances];
+  for (let k = 0; k < 3; k++) {
+    if (deposit) {
+      newBalances[k] += amounts[k];
+    } else {
+      if (amounts[k] > newBalances[k]) {
+        throw new Error("calcTokenAmount3: withdrawal exceeds pool balance");
+      }
+      newBalances[k] -= amounts[k];
+    }
+  }
+  const xp = scaleBalances3(newBalances, precisions, params.priceScales);
+  const amountsp = scaleBalances3(amounts, precisions, params.priceScales);
+  const D = calcD(params.A, params.gamma, xp);
 
   if (totalSupply === 0n) {
-    return D1;
+    return getXcp3(D, params.priceScales);
   }
 
   // Guard against D0 === 0n (invalid pool state with non-zero supply)
-  if (D0 === 0n) {
+  if (params.D === 0n) {
     throw new Error("calcTokenAmount3: pool invariant D is zero");
   }
 
-  const diff = D1 - D0;
-  return (totalSupply * diff) / D0;
+  let d_token = (totalSupply * D) / params.D;
+  d_token = deposit ? d_token - totalSupply : totalSupply - d_token;
+  d_token -=
+    (calcTokenFee(amountsp, xp, params.feeGamma, params.midFee, params.outFee) * d_token) /
+      FEE_DENOMINATOR +
+    1n;
+  return d_token > 0n ? d_token : 0n;
 }
 
 /**
- * Calculate tokens received for single-sided LP withdrawal (2-coin)
+ * Shared `_calc_withdraw_one_coin` math. The fee is charged on D, not on y:
+ * `D -= dD - (fee * dD / (2 * 10^10) + 1)`.
+ */
+function withdrawOneCoinFromXp(
+  params: CryptoPoolParamsBase,
+  xp: bigint[],
+  D0: bigint,
+  tokenAmount: bigint,
+  totalSupply: bigint,
+  i: number,
+  priceScaleI: bigint,
+  solveY: (D: bigint) => bigint
+): RemoveLiquidityOneCoinResult {
+  const fee = dynamicFee(xp, params.feeGamma, params.midFee, params.outFee);
+  const dD = (tokenAmount * D0) / totalSupply;
+  const D = D0 - (dD - ((fee * dD) / (2n * FEE_DENOMINATOR) + 1n));
+  const y = solveY(D);
+  if (y > xp[i]) {
+    throw new Error("calcWithdrawOneCoin: unsafe values (y exceeds balance)");
+  }
+  const dy = ((xp[i] - y) * PRECISION) / priceScaleI;
+  const xpAfter = [...xp];
+  xpAfter[i] = y;
+  return { dy, D, xp: xpAfter, D0, dD };
+}
+
+function validateWithdrawOneCoin(
+  name: string,
+  tokenAmount: bigint,
+  totalSupply: bigint
+): void {
+  if (totalSupply === 0n) {
+    throw new Error(`${name}: totalSupply cannot be zero`);
+  }
+  if (tokenAmount > totalSupply) {
+    throw new Error(`${name}: tokenAmount exceeds totalSupply`);
+  }
+}
+
+function withdrawOneCoin2(
+  name: string,
+  params: TwocryptoParams,
+  tokenAmount: bigint,
+  i: number,
+  totalSupply: bigint,
+  updateD: boolean
+): RemoveLiquidityOneCoinResult {
+  validateWithdrawOneCoin(name, tokenAmount, totalSupply);
+  const precisions = params.precisions ?? [1n, 1n];
+  const xp = scaleBalances(params.balances, precisions, params.priceScale);
+  const D0 = updateD ? calcD(params.A, params.gamma, xp) : params.D;
+  const priceScaleI =
+    i === 0 ? PRECISION * precisions[0] : params.priceScale * precisions[1];
+  return withdrawOneCoinFromXp(params, xp, D0, tokenAmount, totalSupply, i, priceScaleI, (D) =>
+    newtonY(params.A, params.gamma, xp, D, i)
+  );
+}
+
+function withdrawOneCoin3(
+  name: string,
+  params: TricryptoParams,
+  tokenAmount: bigint,
+  i: number,
+  totalSupply: bigint,
+  updateD: boolean
+): RemoveLiquidityOneCoinResult {
+  validateWithdrawOneCoin(name, tokenAmount, totalSupply);
+  const precisions = params.precisions ?? [1n, 1n, 1n];
+  const xp = scaleBalances3(params.balances, precisions, params.priceScales);
+  const D0 = updateD ? calcD(params.A, params.gamma, xp) : params.D;
+  const priceScaleI =
+    i === 0 ? PRECISION * precisions[0] : params.priceScales[i - 1] * precisions[i];
+  return withdrawOneCoinFromXp(params, xp, D0, tokenAmount, totalSupply, i, priceScaleI, (D) =>
+    newtonY3(params.A, params.gamma, xp, D, i)
+  );
+}
+
+/**
+ * Tokens received for single-sided LP withdrawal (2-coin).
+ * Exact translation of the CurveCryptoSwap2 view
+ * `calc_withdraw_one_coin(token_amount, i)`: D is recomputed from the
+ * balances (`newton_D`), half the dynamic fee is charged on the burned share
+ * of D, and the output is `(xp[i] - newton_y) * 10^18 / price_scale_i`.
  */
 export function calcWithdrawOneCoin(
   params: TwocryptoParams,
@@ -976,38 +1399,14 @@ export function calcWithdrawOneCoin(
     throw new Error("calcWithdrawOneCoin: totalSupply cannot be zero");
   }
   if (tokenAmount === 0n) return 0n;
-  if (tokenAmount > totalSupply) {
-    throw new Error("calcWithdrawOneCoin: tokenAmount exceeds totalSupply");
-  }
 
-  const precisions = params.precisions ?? [1n, 1n];
-
-  // Special case: full withdrawal returns entire balance of token i
-  if (tokenAmount === totalSupply) {
-    return params.balances[i];
-  }
-
-  const xp = scaleBalances(params.balances, precisions, params.priceScale);
-  const D0 = calcD(params.A, params.gamma, xp);
-  const D1 = D0 - (tokenAmount * D0) / totalSupply;
-
-  const newY = newtonY(params.A, params.gamma, xp, D1, i);
-
-  let dy = xp[i] - newY;
-  if (dy < 0n) return 0n;
-
-  // Apply dynamic fee BEFORE unscaling (for precision)
-  const fee = dynamicFee(xp, params.feeGamma, params.midFee, params.outFee);
-  dy = dy - (dy * fee) / FEE_DENOMINATOR;
-  if (dy <= 0n) return 0n;
-
-  dy = unscaleOutput2(dy, i, precisions, params.priceScale);
-
-  return dy > 0n ? dy : 0n;
+  return withdrawOneCoin2("calcWithdrawOneCoin", params, tokenAmount, i, totalSupply, true).dy;
 }
 
 /**
- * Calculate tokens received for single-sided LP withdrawal (3-coin)
+ * Tokens received for single-sided LP withdrawal (3-coin).
+ * Exact translation of the tricrypto2 view
+ * `calc_withdraw_one_coin(token_amount, i)` (see {@link calcWithdrawOneCoin}).
  */
 export function calcWithdrawOneCoin3(
   params: TricryptoParams,
@@ -1021,38 +1420,67 @@ export function calcWithdrawOneCoin3(
     throw new Error("calcWithdrawOneCoin3: totalSupply cannot be zero");
   }
   if (tokenAmount === 0n) return 0n;
-  if (tokenAmount > totalSupply) {
-    throw new Error("calcWithdrawOneCoin3: tokenAmount exceeds totalSupply");
-  }
 
-  const precisions = params.precisions ?? [1n, 1n, 1n];
-
-  // Special case: full withdrawal returns entire balance of token i
-  if (tokenAmount === totalSupply) {
-    return params.balances[i];
-  }
-
-  const xp = scaleBalances3(params.balances, precisions, params.priceScales);
-  const D0 = calcD(params.A, params.gamma, xp);
-  const D1 = D0 - (tokenAmount * D0) / totalSupply;
-
-  const newY = newtonY3(params.A, params.gamma, xp, D1, i);
-
-  let dy = xp[i] - newY;
-  if (dy < 0n) return 0n;
-
-  // Apply dynamic fee BEFORE unscaling (for precision)
-  const fee = dynamicFee(xp, params.feeGamma, params.midFee, params.outFee);
-  dy = dy - (dy * fee) / FEE_DENOMINATOR;
-  if (dy <= 0n) return 0n;
-
-  dy = unscaleOutput3(dy, i, precisions, params.priceScales);
-
-  return dy > 0n ? dy : 0n;
+  return withdrawOneCoin3("calcWithdrawOneCoin3", params, tokenAmount, i, totalSupply, true).dy;
 }
 
 /**
- * Calculate balanced removal of liquidity (2-coin)
+ * CurveCryptoSwap2 `remove_liquidity_one_coin` (2-coin): the state-changing
+ * call. Unlike the `calc_withdraw_one_coin` view it starts from the stored
+ * `params.D` unless `futureAGammaTime > 0`.
+ */
+export function calcRemoveLiquidityOneCoin(
+  params: TwocryptoParams,
+  tokenAmount: bigint,
+  i: number,
+  totalSupply: bigint
+): RemoveLiquidityOneCoinResult {
+  if (i < 0 || i > 1) {
+    throw new Error(`calcRemoveLiquidityOneCoin: index out of bounds (i=${i})`);
+  }
+  if (tokenAmount === 0n) {
+    throw new Error("calcRemoveLiquidityOneCoin: tokenAmount cannot be zero");
+  }
+  return withdrawOneCoin2(
+    "calcRemoveLiquidityOneCoin",
+    params,
+    tokenAmount,
+    i,
+    totalSupply,
+    (params.futureAGammaTime ?? 0n) > 0n
+  );
+}
+
+/**
+ * tricrypto2 `remove_liquidity_one_coin` (3-coin): the state-changing call
+ * (see {@link calcRemoveLiquidityOneCoin}).
+ */
+export function calcRemoveLiquidityOneCoin3(
+  params: TricryptoParams,
+  tokenAmount: bigint,
+  i: number,
+  totalSupply: bigint
+): RemoveLiquidityOneCoinResult {
+  if (i < 0 || i > 2) {
+    throw new Error(`calcRemoveLiquidityOneCoin3: index out of bounds (i=${i})`);
+  }
+  if (tokenAmount === 0n) {
+    throw new Error("calcRemoveLiquidityOneCoin3: tokenAmount cannot be zero");
+  }
+  return withdrawOneCoin3(
+    "calcRemoveLiquidityOneCoin3",
+    params,
+    tokenAmount,
+    i,
+    totalSupply,
+    (params.futureAGammaTime ?? 0n) > 0n
+  );
+}
+
+/**
+ * Calculate balanced removal of liquidity (2-coin).
+ * Exact translation of `remove_liquidity`: the contract pays out on
+ * `_amount - 1` ("rounding errors favoring other LPs a tiny bit").
  */
 export function calcRemoveLiquidity(
   params: TwocryptoParams,
@@ -1065,14 +1493,17 @@ export function calcRemoveLiquidity(
       `calcRemoveLiquidity: tokenAmount (${tokenAmount}) exceeds totalSupply (${totalSupply})`
     );
   }
+  if (tokenAmount === 0n) return [0n, 0n];
+  const amount = tokenAmount - 1n;
   return [
-    (params.balances[0] * tokenAmount) / totalSupply,
-    (params.balances[1] * tokenAmount) / totalSupply,
+    (params.balances[0] * amount) / totalSupply,
+    (params.balances[1] * amount) / totalSupply,
   ];
 }
 
 /**
- * Calculate balanced removal of liquidity (3-coin)
+ * Calculate balanced removal of liquidity (3-coin).
+ * Exact translation of `remove_liquidity` (pays out on `_amount - 1`).
  */
 export function calcRemoveLiquidity3(
   params: TricryptoParams,
@@ -1085,10 +1516,12 @@ export function calcRemoveLiquidity3(
       `calcRemoveLiquidity3: tokenAmount (${tokenAmount}) exceeds totalSupply (${totalSupply})`
     );
   }
+  if (tokenAmount === 0n) return [0n, 0n, 0n];
+  const amount = tokenAmount - 1n;
   return [
-    (params.balances[0] * tokenAmount) / totalSupply,
-    (params.balances[1] * tokenAmount) / totalSupply,
-    (params.balances[2] * tokenAmount) / totalSupply,
+    (params.balances[0] * amount) / totalSupply,
+    (params.balances[1] * amount) / totalSupply,
+    (params.balances[2] * amount) / totalSupply,
   ];
 }
 
@@ -1097,35 +1530,62 @@ export function calcRemoveLiquidity3(
 // ============================================
 
 /**
- * Calculate virtual price of LP token (2-coin)
+ * Virtual price of the LP token (2-coin).
+ * Exact translation of `get_virtual_price()`:
+ * `10^18 * get_xcp(D) / totalSupply` with the pool's stored `params.D`.
  */
 export function getVirtualPrice(
   params: TwocryptoParams,
   totalSupply: bigint
 ): bigint {
   if (totalSupply === 0n) return PRECISION;
-  const precisions = params.precisions ?? [1n, 1n];
-  const xp = scaleBalances(params.balances, precisions, params.priceScale);
-  const D = calcD(params.A, params.gamma, xp);
-  return (D * PRECISION) / totalSupply;
+  return (PRECISION * getXcp(params.D, params.priceScale)) / totalSupply;
 }
 
 /**
- * Calculate virtual price of LP token (3-coin)
+ * Virtual price of the LP token (3-coin).
+ * Exact translation of tricrypto2 `get_virtual_price()` (stored `params.D`).
  */
 export function getVirtualPrice3(
   params: TricryptoParams,
   totalSupply: bigint
 ): bigint {
   if (totalSupply === 0n) return PRECISION;
-  const precisions = params.precisions ?? [1n, 1n, 1n];
-  const xp = scaleBalances3(params.balances, precisions, params.priceScales);
-  const D = calcD(params.A, params.gamma, xp);
-  return (D * PRECISION) / totalSupply;
+  return (PRECISION * getXcp3(params.D, params.priceScales)) / totalSupply;
 }
 
 /**
- * Calculate LP price in terms of token[0] (2-coin)
+ * Integer square root of a 1e18 fixed-point number (Vyper `sqrt_int`).
+ */
+export function sqrtInt(x: bigint): bigint {
+  if (x === 0n) return 0n;
+
+  let z = (x + PRECISION) / 2n;
+  let y = x;
+
+  for (let i = 0; i < 256; i++) {
+    if (z === y) return y;
+    y = z;
+    z = ((x * PRECISION) / z + z) / 2n;
+  }
+
+  throw new Error("sqrtInt did not converge");
+}
+
+/**
+ * LP token price in coin 0 as the 2-coin contract's `lp_price()` reports it:
+ * `2 * virtual_price * sqrt_int(price_oracle) / 10^18`.
+ *
+ * @param virtualPrice - The pool's cached `virtual_price()` (not `get_virtual_price()`)
+ * @param priceOracle - The pool's `price_oracle()`
+ */
+export function lpPriceFromOracle(virtualPrice: bigint, priceOracle: bigint): bigint {
+  return (2n * virtualPrice * sqrtInt(priceOracle)) / PRECISION;
+}
+
+/**
+ * Pro-rata pool value per LP token in terms of token[0] at price_scale (2-coin).
+ * This is NOT the contract's `lp_price()`; see {@link lpPriceFromOracle}.
  */
 export function lpPrice(
   params: TwocryptoParams,
@@ -1142,7 +1602,7 @@ export function lpPrice(
 }
 
 /**
- * Calculate LP price in terms of token[0] (3-coin)
+ * Pro-rata pool value per LP token in terms of token[0] at price_scale (3-coin).
  */
 export function lpPrice3(
   params: TricryptoParams,
