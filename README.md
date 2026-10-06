@@ -403,11 +403,15 @@ Exact (to the wei) ports of each StableSwap family's liquidity functions.
 `totalSupply`, and optionally `ampPrecision` (1 for 3pool), `ampPrecise`
 (the pool's `A_precise()`, needed while A ramps) and `adminFee`.
 
-| `variant` | Pools | `calc_token_amount` |
+| `variant` | Pools (Curve API registry / implementation) | `calc_token_amount` |
 |-----------|-------|---------------------|
-| `"legacy"` | 3pool, FRAXBP and other pre-factory pools | no imbalance fee |
-| `"plain"` | Factory plain pools (Vyper 0.3.x) | static imbalance fee |
-| `"ng"` | StableSwap-NG | dynamic fee (`offpeg_fee_multiplier`) |
+| `"legacy"` | `main` registry plain pools (3pool, ETH/stETH, FRAXBP); `factory` v1 plain pools (`plain2basic`, `plain2balances`, `plain2basicema`, `plain2optimized`, `plain3balances`) | no imbalance fee |
+| `"plain"` | `factory-crvusd` pools (crvUSD/USDT, …) | static imbalance fee |
+| `"ng"` | `factory-stable-ng` (`plainstableng`, `plainstableng-old`) | dynamic fee (`offpeg_fee_multiplier`) |
+
+Use `ampPrecision: 1n` only for pools without `A_precise()` (3pool); pass
+`ampPrecise` from `A_precise()` otherwise. Lending pools (cTokens, aTokens,
+yTokens) need their current rates supplied in `rates`.
 
 | Function | Description |
 |----------|-------------|
@@ -420,8 +424,12 @@ Exact (to the wei) ports of each StableSwap family's liquidity functions.
 | `getDVariant(xp, amp, variant, ampPrecision?)` / `getYDVariant(...)` | Invariant helpers per family |
 
 Legacy `calc_token_amount` omits the imbalance fee that `add_liquidity`
-charges; use `calcAddLiquidityExact` for the amount minted. Metapools are not
-covered.
+charges; use `calcAddLiquidityExact` for the amount minted.
+
+**Not covered:** metapools (`isMetaPool`), Twocrypto-NG liquidity for pools
+whose MATH is StableswapMath (v2.1.0d / v3.0.0; `twocryptoNg` has `get_dy`
+only), Twocrypto-NG v2.0.0, Tricrypto-NG v2.0.1, and the retired tricrypto v1
+(0x80466c64…).
 
 ### Tricrypto-NG and Twocrypto-NG
 

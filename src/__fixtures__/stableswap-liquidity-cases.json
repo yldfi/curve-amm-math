@@ -1,5 +1,5 @@
 {
- "description": "StableSwap pool state and on-chain view results at pinned Ethereum mainnet blocks. FRAXBP is the parent state of tx 0xd4b4a8f9..., whose add_liquidity mint and AddLiquidity fees are recorded under add_liquidity.",
+ "description": "StableSwap pool state and on-chain view results at pinned Ethereum mainnet blocks, one or more pools per contract family. FRAXBP is the parent state of tx 0xd4b4a8f9..., whose add_liquidity mint and AddLiquidity fees are recorded under add_liquidity.",
  "cases": [
   {
    "name": "FRAXBP",
@@ -532,6 +532,576 @@
    ],
    "ampPrecision": "100",
    "ampPrecise": "1000000"
+  },
+  {
+   "name": "ETH/stETH",
+   "pool": "0xdc24316b9ae028f1497c275eb9192a3ea0f67022",
+   "block": 26132000,
+   "variant": "legacy",
+   "decimals": [
+    18,
+    18
+   ],
+   "balances": [
+    "17947288295782187928161",
+    "20790484982665339436926"
+   ],
+   "A": "900",
+   "ampPrecise": "90000",
+   "ampPrecision": "100",
+   "fee": "1000000",
+   "totalSupply": "33874296759585522405548",
+   "get_virtual_price": "1143570806000775673",
+   "offpeg_fee_multiplier": "0",
+   "rates": [
+    "1000000000000000000",
+    "1000000000000000000"
+   ],
+   "calc_token_amount": [
+    {
+     "amounts": [
+      "897364414789109396408",
+      "0"
+     ],
+     "isDeposit": true,
+     "result": "784759194985427498678"
+    },
+    {
+     "amounts": [
+      "897364414789109396408",
+      "0"
+     ],
+     "isDeposit": false,
+     "result": "784783237121610087213"
+    }
+   ],
+   "calc_withdraw_one_coin": [
+    {
+     "burnAmount": "677485935191710448110",
+     "i": 0,
+     "result": "774634910954679507967"
+    },
+    {
+     "burnAmount": "677485935191710448110",
+     "i": 1,
+     "result": "774770943272969343886"
+    }
+   ]
+  },
+  {
+   "name": "DOLA/sUSDe (stable-ng)",
+   "pool": "0x744793b5110f6ca9cc7cdfe1ce16677c3eb192ef",
+   "block": 26132000,
+   "variant": "ng",
+   "decimals": [
+    18,
+    18
+   ],
+   "balances": [
+    "48491740416638428137421887",
+    "14572798893519758166234794"
+   ],
+   "A": "750",
+   "ampPrecise": "75000",
+   "ampPrecision": "100",
+   "fee": "1000000",
+   "totalSupply": "63950196004215070956152397",
+   "get_virtual_price": "1043317718528713122",
+   "offpeg_fee_multiplier": "200000000000",
+   "rates": [
+    "1000000000000000000",
+    "1251655130588736222"
+   ],
+   "calc_token_amount": [
+    {
+     "amounts": [
+      "2424587020831921406871094",
+      "0"
+     ],
+     "isDeposit": true,
+     "result": "2322184875005225499317786"
+    },
+    {
+     "amounts": [
+      "2424587020831921406871094",
+      "0"
+     ],
+     "isDeposit": false,
+     "result": "2322427854167388574547697"
+    }
+   ],
+   "calc_withdraw_one_coin": [
+    {
+     "burnAmount": "1279003920084301419123047",
+     "i": 0,
+     "result": "1335278819031003195497719"
+    },
+    {
+     "burnAmount": "1279003920084301419123047",
+     "i": 1,
+     "result": "1064633539620571867204544"
+    }
+   ]
+  },
+  {
+   "name": "factory stETH/ETH",
+   "pool": "0x21e27a5e5513d6e65c4f830167390997aa84843a",
+   "block": 26132000,
+   "variant": "legacy",
+   "decimals": [
+    18,
+    18
+   ],
+   "balances": [
+    "4304954497004189848897",
+    "5362039726618939834916"
+   ],
+   "A": "1500",
+   "ampPrecise": "150000",
+   "ampPrecision": "100",
+   "fee": "800000",
+   "totalSupply": "8949581794154079945497",
+   "get_virtual_price": "1080157204591480758",
+   "offpeg_fee_multiplier": "0",
+   "rates": [
+    "1000000000000000000",
+    "1000000000000000000"
+   ],
+   "calc_token_amount": [
+    {
+     "amounts": [
+      "215247724850209492444",
+      "0"
+     ],
+     "isDeposit": true,
+     "result": "199288243872102285736"
+    },
+    {
+     "amounts": [
+      "215247724850209492444",
+      "0"
+     ],
+     "isDeposit": false,
+     "result": "199292156960985405067"
+    }
+   ],
+   "calc_withdraw_one_coin": [
+    {
+     "burnAmount": "178991635883081598909",
+     "i": 0,
+     "result": "193313548053135320115"
+    },
+    {
+     "burnAmount": "178991635883081598909",
+     "i": 1,
+     "result": "193344735135394410952"
+    }
+   ]
+  },
+  {
+   "name": "factory v1 plain2balances",
+   "pool": "0x4d9f9d15101eec665f77210cb999639f760f831e",
+   "block": 26132000,
+   "variant": "legacy",
+   "decimals": [
+    18,
+    18
+   ],
+   "balances": [
+    "3014874510147374943478",
+    "4036345710272585091872"
+   ],
+   "A": "200",
+   "ampPrecise": "20000",
+   "ampPrecision": "100",
+   "fee": "4000000",
+   "totalSupply": "6678518460059509707248",
+   "get_virtual_price": "1055749764789421134",
+   "offpeg_fee_multiplier": "0",
+   "rates": [
+    "1000000000000000000",
+    "1000000000000000000"
+   ],
+   "calc_token_amount": [
+    {
+     "amounts": [
+      "150743725507368747173",
+      "0"
+     ],
+     "isDeposit": true,
+     "result": "142887956317831412969"
+    },
+    {
+     "amounts": [
+      "150743725507368747173",
+      "0"
+     ],
+     "isDeposit": false,
+     "result": "142910523516676267047"
+    }
+   ],
+   "calc_withdraw_one_coin": [
+    {
+     "burnAmount": "133570369201190194144",
+     "i": 0,
+     "result": "140860162435232750687"
+    },
+    {
+     "burnAmount": "133570369201190194144",
+     "i": 1,
+     "result": "141085088018401051537"
+    }
+   ]
+  },
+  {
+   "name": "osETH/rETH (stable-ng old)",
+   "pool": "0xe080027bd47353b5d1639772b4a75e9ed3658a0d",
+   "block": 26132000,
+   "variant": "ng",
+   "decimals": [
+    18,
+    18
+   ],
+   "balances": [
+    "2725289367664352349215",
+    "2286453533933747538580"
+   ],
+   "A": "100",
+   "ampPrecise": "10000",
+   "ampPrecision": "100",
+   "fee": "2000000",
+   "totalSupply": "5206367245614188158512",
+   "get_virtual_price": "1080797591751363054",
+   "offpeg_fee_multiplier": "10000000000",
+   "rates": [
+    "1080448702047578898",
+    "1173238070149738156"
+   ],
+   "calc_token_amount": [
+    {
+     "amounts": [
+      "136264468383217617460",
+      "0"
+     ],
+     "isDeposit": true,
+     "result": "136129990772009293298"
+    },
+    {
+     "amounts": [
+      "136264468383217617460",
+      "0"
+     ],
+     "isDeposit": false,
+     "result": "136188493913701977741"
+    }
+   ],
+   "calc_withdraw_one_coin": [
+    {
+     "burnAmount": "104127344912283763170",
+     "i": 0,
+     "result": "104188477629073521775"
+    },
+    {
+     "burnAmount": "104127344912283763170",
+     "i": 1,
+     "result": "95856830724070434340"
+    }
+   ]
+  },
+  {
+   "name": "factory v1 plain2basicema",
+   "pool": "0xa4c567c662349bec3d0fb94c4e7f85ba95e208e4",
+   "block": 26132000,
+   "variant": "legacy",
+   "decimals": [
+    18,
+    18
+   ],
+   "balances": [
+    "5055206353104057039845",
+    "366152597156819352910"
+   ],
+   "A": "200",
+   "ampPrecise": "20000",
+   "ampPrecision": "100",
+   "fee": "4000000",
+   "totalSupply": "4984170270057232092033",
+   "get_virtual_price": "1079852772848280220",
+   "offpeg_fee_multiplier": "0",
+   "rates": [
+    "1000000000000000000",
+    "1000000000000000000"
+   ],
+   "calc_token_amount": [
+    {
+     "amounts": [
+      "252760317655202851992",
+      "0"
+     ],
+     "isDeposit": true,
+     "result": "230230416071713312692"
+    },
+    {
+     "amounts": [
+      "252760317655202851992",
+      "0"
+     ],
+     "isDeposit": false,
+     "result": "230417925131000512154"
+    }
+   ],
+   "calc_withdraw_one_coin": [
+    {
+     "burnAmount": "99683405401144641840",
+     "i": 0,
+     "result": "109371157860342083577"
+    },
+    {
+     "burnAmount": "99683405401144641840",
+     "i": 1,
+     "result": "93449184583906124686"
+    }
+   ]
+  },
+  {
+   "name": "factory v1 plain2basic",
+   "pool": "0xb657b895b265c38c53fff00166cf7f6a3c70587d",
+   "block": 26132000,
+   "variant": "legacy",
+   "decimals": [
+    18,
+    18
+   ],
+   "balances": [
+    "1844013768913850533642",
+    "280711437261264646831"
+   ],
+   "A": "300",
+   "ampPrecise": "30000",
+   "ampPrecision": "100",
+   "fee": "4000000",
+   "totalSupply": "1815493268489173698296",
+   "get_virtual_price": "1168048168913308480",
+   "offpeg_fee_multiplier": "0",
+   "rates": [
+    "1000000000000000000",
+    "1000000000000000000"
+   ],
+   "calc_token_amount": [
+    {
+     "amounts": [
+      "92200688445692526682",
+      "0"
+     ],
+     "isDeposit": true,
+     "result": "78531690530512964891"
+    },
+    {
+     "amounts": [
+      "92200688445692526682",
+      "0"
+     ],
+     "isDeposit": false,
+     "result": "78552860676431284300"
+    }
+   ],
+   "calc_withdraw_one_coin": [
+    {
+     "burnAmount": "36309865369783473965",
+     "i": 0,
+     "result": "42619161265599822721"
+    },
+    {
+     "burnAmount": "36309865369783473965",
+     "i": 1,
+     "result": "41523356400556004326"
+    }
+   ]
+  },
+  {
+   "name": "hemiBTC/cbBTC/WBTC (stable-ng, 3 coins)",
+   "pool": "0x66039342c66760874047c36943b1e2d8300363bb",
+   "block": 26132000,
+   "variant": "ng",
+   "decimals": [
+    8,
+    8,
+    8
+   ],
+   "balances": [
+    "2065241716",
+    "1999293265",
+    "1432234294"
+   ],
+   "A": "100",
+   "ampPrecise": "10000",
+   "ampPrecision": "100",
+   "fee": "4000000",
+   "totalSupply": "54832856875400884669",
+   "get_virtual_price": "1002326259694591017",
+   "offpeg_fee_multiplier": "125000000000",
+   "rates": [
+    "10000000000000000000000000000",
+    "10000000000000000000000000000",
+    "10000000000000000000000000000"
+   ],
+   "calc_token_amount": [
+    {
+     "amounts": [
+      "103262085",
+      "0",
+      "0"
+     ],
+     "isDeposit": true,
+     "result": "1028539549798422838"
+    },
+    {
+     "amounts": [
+      "103262085",
+      "0",
+      "0"
+     ],
+     "isDeposit": false,
+     "result": "1029250887774288370"
+    }
+   ],
+   "calc_withdraw_one_coin": [
+    {
+     "burnAmount": "1096657137508017693",
+     "i": 0,
+     "result": "110023594"
+    },
+    {
+     "burnAmount": "1096657137508017693",
+     "i": 1,
+     "result": "109989029"
+    },
+    {
+     "burnAmount": "1096657137508017693",
+     "i": 2,
+     "result": "109553076"
+    }
+   ]
+  },
+  {
+   "name": "factory v1 plain3balances",
+   "pool": "0xb9446c4ef5ebe66268da6700d26f96273de3d571",
+   "block": 26132000,
+   "variant": "legacy",
+   "decimals": [
+    18,
+    6,
+    2
+   ],
+   "balances": [
+    "1753945234945820431073",
+    "177707131146",
+    "166167"
+   ],
+   "A": "200",
+   "ampPrecise": "20000",
+   "ampPrecision": "100",
+   "fee": "4000000",
+   "totalSupply": "134550448372972235062179",
+   "get_virtual_price": "1026058982760989881",
+   "offpeg_fee_multiplier": "0",
+   "rates": [
+    "1000000000000000000",
+    "1000000000000000000000000000000",
+    "10000000000000000000000000000000000"
+   ],
+   "calc_token_amount": [
+    {
+     "amounts": [
+      "87697261747291021553",
+      "0",
+      "0"
+     ],
+     "isDeposit": true,
+     "result": "949712108075983623204"
+    },
+    {
+     "amounts": [
+      "87697261747291021553",
+      "0",
+      "0"
+     ],
+     "isDeposit": false,
+     "result": "1000955119173164168290"
+    }
+   ],
+   "calc_withdraw_one_coin": [
+    {
+     "burnAmount": "2691008967459444701243",
+     "i": 0,
+     "result": "225456863626492147494"
+    },
+    {
+     "burnAmount": "2691008967459444701243",
+     "i": 1,
+     "result": "4968514259"
+    },
+    {
+     "burnAmount": "2691008967459444701243",
+     "i": 2,
+     "result": "21395"
+    }
+   ]
+  },
+  {
+   "name": "factory v1 plain2optimized",
+   "pool": "0x9d0464996170c6b9e75eed71c68b99ddedf279e8",
+   "block": 26132000,
+   "variant": "legacy",
+   "decimals": [
+    18,
+    18
+   ],
+   "balances": [
+    "66696251008014174289702",
+    "1721339568329228923967218"
+   ],
+   "A": "50",
+   "ampPrecise": "5000",
+   "ampPrecision": "100",
+   "fee": "15000000",
+   "totalSupply": "1622917147986156744274373",
+   "get_virtual_price": "1046477981919923674",
+   "offpeg_fee_multiplier": "0",
+   "rates": [
+    "1000000000000000000",
+    "1000000000000000000"
+   ],
+   "calc_token_amount": [
+    {
+     "amounts": [
+      "3334812550400708714485",
+      "0"
+     ],
+     "isDeposit": true,
+     "result": "6871144314887319786264"
+    },
+    {
+     "amounts": [
+      "3334812550400708714485",
+      "0"
+     ],
+     "isDeposit": false,
+     "result": "7201612752018947736938"
+    }
+   ],
+   "calc_withdraw_one_coin": [
+    {
+     "burnAmount": "32458342959723134885487",
+     "i": 0,
+     "result": "13755237064447199432648"
+    },
+    {
+     "burnAmount": "32458342959723134885487",
+     "i": 1,
+     "result": "37650244582207119064735"
+    }
+   ]
   }
  ]
 }
