@@ -15,7 +15,7 @@
 
 <p align="center">
 
-[![Socket Badge](https://badge.socket.dev/npm/package/@yldfi/curve-amm-math/1.4.0)](https://badge.socket.dev/npm/package/@yldfi/curve-amm-math/1.4.0)
+[![Socket Badge](https://badge.socket.dev/npm/package/@yldfi/curve-amm-math/1.5.0)](https://badge.socket.dev/npm/package/@yldfi/curve-amm-math/1.5.0) <!-- x-release-please-version -->
 
 </p>
 
