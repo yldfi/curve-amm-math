@@ -831,7 +831,9 @@ function validateLiquidityAmounts(name: string, params: StableLiquidityParams, a
  *   does charge the imbalance fee: use {@link calcAddLiquidityExact} for the
  *   amount actually minted.
  * - `"plain"`: static imbalance fee, as `add_liquidity`.
- * - `"ng"`: dynamic imbalance fee (StableSwap-NG views contract).
+ * - `"ng"`: dynamic imbalance fee (StableSwap-NG views contract), computed
+ *   with `A * A_PRECISION` like the views (`ampPrecise` is ignored, so while A
+ *   ramps the quote differs from the mint in {@link calcAddLiquidityExact}).
  *
  * For an empty pool (supply 0) the contract returns D1.
  */
@@ -841,7 +843,13 @@ export function calcTokenAmountExact(
   isDeposit: boolean
 ): bigint {
   validateLiquidityAmounts("calcTokenAmountExact", params, amounts);
-  const [amp, ampPrecision] = liquidityAmp(params);
+  let [amp, ampPrecision] = liquidityAmp(params);
+  // The StableSwap-NG views contract uses A() * A_PRECISION, not A_precise():
+  // the two differ while A ramps.
+  if (params.variant === "ng") {
+    ampPrecision = params.ampPrecision ?? A_PRECISION;
+    amp = params.A * ampPrecision;
+  }
   const { variant, rates, totalSupply } = params;
   const oldBalances = params.balances;
 
