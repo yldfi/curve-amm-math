@@ -1194,10 +1194,13 @@ export interface StableExchangeResult {
 }
 
 /**
- * The state-changing `exchange(i, j, dx)`: the amount paid out (equal to
- * {@link getDyVariant}) and the pool's balances afterwards, with the admin
- * share of the fee removed from coin j (`admin_balances` in NG pools).
- * `"aave"` pools are not supported here.
+ * The state-changing `exchange(i, j, dx)`: the amount paid out and the
+ * pool's balances afterwards, with the admin share of the fee removed from
+ * coin j (`admin_balances` in NG and later plain pools). Equal to
+ * {@link getDyVariant} except for 3pool-era pools, whose `get_dy` view rounds
+ * differently from their `exchange`. Pools whose `balances()` read a
+ * rebasing token's `balanceOf` (stETH) can drift by the token's own 1-2 wei
+ * transfer rounding. `"aave"` pools are not supported here.
  */
 export function calcExchangeExact(
   params: StableLiquidityParams,
@@ -1218,23 +1221,16 @@ export function calcExchangeExact(
   const y = getYVariant(i, j, x, xp, amp, D, ampPrecision);
   const subtract = params.getDySubtractOne === false ? 0n : 1n;
   let dy = xp[j] - y - subtract;
-  let admin: bigint;
-  const feeAfterScaling =
-    params.variant !== "ng" && (params.feeAfterScaling ?? ampPrecision === 1n);
-  if (feeAfterScaling) {
-    dy = (dy * PRECISION) / rates[j];
-    const dyFee = (params.fee * dy) / FEE_DENOMINATOR;
-    admin = (dyFee * adminFee) / FEE_DENOMINATOR;
-    dy -= dyFee;
-  } else {
-    const feeRate =
-      params.variant === "ng"
-        ? dynamicFee((xp[i] + x) / 2n, (xp[j] + y) / 2n, params.fee, params.offpegFeeMultiplier)
-        : params.fee;
-    const dyFee = (dy * feeRate) / FEE_DENOMINATOR;
-    admin = (((dyFee * adminFee) / FEE_DENOMINATOR) * PRECISION) / rates[j];
-    dy = ((dy - dyFee) * PRECISION) / rates[j];
-  }
+  // Every family's `exchange` charges the fee before scaling, including the
+  // 3pool-era pools whose `get_dy` view scales first: their swap can pay
+  // 1 wei different from their own quote.
+  const feeRate =
+    params.variant === "ng"
+      ? dynamicFee((xp[i] + x) / 2n, (xp[j] + y) / 2n, params.fee, params.offpegFeeMultiplier)
+      : params.fee;
+  const dyFee = (dy * feeRate) / FEE_DENOMINATOR;
+  const admin = (((dyFee * adminFee) / FEE_DENOMINATOR) * PRECISION) / rates[j];
+  dy = ((dy - dyFee) * PRECISION) / rates[j];
   const balances = [...params.balances];
   balances[i] += dx;
   balances[j] -= dy + admin;
