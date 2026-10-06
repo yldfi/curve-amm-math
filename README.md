@@ -417,7 +417,12 @@ Exact (to the wei) ports of each StableSwap family's liquidity functions.
 Use `ampPrecision: 1n` only for pools without `A_precise()` (3pool); pass
 `ampPrecise` from `A_precise()` otherwise. Pass `adminFee` from `admin_fee()`
 when you use the post-call `balances` (3pool's is 100%, not the 50% default).
-`getDyVariant(params, i, j, dx)` is the exact `get_dy` for every variant.
+`getDyVariant(params, i, j, dx)` is the exact `get_dy` for every variant, and
+`calcExchangeExact(params, i, j, dx)` the state-changing `exchange` (amount
+out plus post-swap balances). While A ramps, StableSwap-NG's
+`calc_token_amount` view uses `A() * 100` and the pool's `add_liquidity` uses
+`A_precise()`; `calcTokenAmountExact` follows the view and
+`calcAddLiquidityExact` the pool.
 
 Lending and rate-token pools take their token rates in `rates`, computed as
 the pools do: `compoundRate(exchangeRateStored, supplyRatePerBlock,
