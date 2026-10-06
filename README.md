@@ -13,13 +13,20 @@
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
 </p>
 
+<p align="center">
+
+[![Socket Badge](https://badge.socket.dev/npm/package/@yldfi/curve-amm-math/1.4.0)](https://badge.socket.dev/npm/package/@yldfi/curve-amm-math/1.4.0)
+
+</p>
+
 ## Features
 
-- **StableSwap math** - For pegged asset pools (stablecoins, liquid staking tokens)
-- **Exact precision mode** - Match on-chain results within ±1 wei for all StableSwap pool types
-- **CryptoSwap math** - Exact (to the wei) quotes for classic CryptoSwap pools (CurveCryptoSwap2, tricrypto2), Tricrypto-NG and Twocrypto-NG (both math variants)
-- **Exact liquidity math** - add / remove liquidity for legacy, plain and NG StableSwap pools and all CryptoSwap families
+- **Exact Curve math, verified on-chain** - Vyper-faithful ports that match the contracts to the wei, checked against on-chain views and real transactions at pinned blocks for every pool family in the Curve API registries on Ethereum
+- **StableSwap** - Legacy (3pool era), factory plain, crvUSD factory, StableSwap-NG, aave-style and lending (cToken / yToken) pools: swaps, deposits, withdrawals, virtual price
+- **Metapools** - Stable and crypto metapools, including `get_dy_underlying` and the deposit zaps
+- **CryptoSwap** - Classic CurveCryptoSwap2 / tricrypto2, Tricrypto-NG, Twocrypto-NG (standard math) and Twocrypto on StableswapMath (YieldBasis pools)
 - **Spot math** - Fee-free marginal rates and LP pool-spot value (an upper bound for single-coin withdrawals)
+- **Approximate StableSwap module** - Simple 18-decimal `stableswap` helpers for UI-style quotes
 - **YieldBasis virtual pool math** - For YieldBasis stablecoin <-> asset virtual pool quotes
 - **LlamaLend LLAMMA math** - For Curve LlamaLend borrowed token <-> collateral AMM quotes
 - **triCRV helpers** - Classic 3pool exact StableSwap helpers (DAI/USDC/USDT)
@@ -189,14 +196,16 @@ const daiIn = tricrv.getDx(params, 0, 1, 100n * 10n**6n);
 
 ### Exact Precision Mode (stableswapExact)
 
-For applications requiring exact on-chain matching (±1 wei), use the exact precision module.
-This replicates Vyper's exact operation order and handles all asset types correctly.
+For exact on-chain matching, use the exact precision module. It replicates
+Vyper's operation order for each StableSwap family; `getDyVariant`, `calcExchangeExact`
+and the liquidity functions are verified to the wei against on-chain views and
+transactions.
 
 **stableswap vs stableswapExact:**
 
 | Aspect | `stableswap` | `stableswapExact` |
 |--------|--------------|-------------------|
-| **Precision** | ~0.01% tolerance | ±1 wei exact |
+| **Precision** | ~0.01% tolerance | Exact (to the wei) |
 | **Balances** | Normalized to 18 decimals | Native token decimals |
 | **Rates** | Computed internally | Must provide explicitly |
 | **Use case** | UI quotes, simulations | Aggregators, MEV, exact matching |
@@ -235,7 +244,7 @@ const dx = stableswapExact.getDxExact(0, 1, 1000n * 10n**6n, params);
 
 ```typescript
 import { stableswapExact } from '@yldfi/curve-amm-math';
-import { getExactStableSwapParams } from 'curve-amm-math/rpc';
+import { getExactStableSwapParams } from '@yldfi/curve-amm-math/rpc';
 
 // Fetch params including dynamic rates from stored_rates()
 const params = await getExactStableSwapParams(rpcUrl, poolAddress);
@@ -254,7 +263,7 @@ const dy = stableswapExact.getDyExact(0, 1, dx, {
 
 ```typescript
 import { stableswap, cryptoswap } from '@yldfi/curve-amm-math';
-import { getStableSwapParams, getCryptoSwapParams, getOnChainDy } from 'curve-amm-math/rpc';
+import { getStableSwapParams, getCryptoSwapParams, getOnChainDy } from '@yldfi/curve-amm-math/rpc';
 
 const rpcUrl = 'https://eth.llamarpc.com';
 const poolAddress = '0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7'; // 3pool
@@ -315,7 +324,7 @@ const dyOnChain = await getOnChainDy(rpcUrl, poolAddress, 0, 1, 10n * 10n**18n);
 
 ### StableSwapExact - Exact Precision Functions
 
-Use these for ±1 wei on-chain matching. All inputs/outputs use **native token decimals**.
+Use these for exact on-chain matching. All inputs/outputs use **native token decimals**.
 
 | Function | Description |
 |----------|-------------|
@@ -607,15 +616,22 @@ with `floorRatio`.
 
 ## Testing Accuracy
 
-The math implementations are tested against known values. For production use with financial consequences, we recommend:
+The exact modules are tested by fixture replay: `src/__fixtures__` holds pool
+state and on-chain view results (and real transactions) captured at pinned
+Ethereum blocks, and the tests require every value to match to the wei. The
+fixtures cover each Curve API registry family, pools captured mid A/gamma ramp,
+active donation protection, and the lending pools at blocks when they were
+active. The `stableswap` module is approximate (~0.01%).
 
-1. **Verify against on-chain**: Use `getOnChainDy()` to compare your off-chain calculations
+For production use with financial consequences, we still recommend:
+
+1. **Verify against on-chain**: Use `getOnChainDy()` to spot-check your inputs (stale or mis-read pool state is the usual cause of mismatches)
 2. **Add slippage tolerance**: Always use `calculateMinDy()` with appropriate slippage (e.g., 50-100 bps)
-3. **Integration tests**: Run periodic checks against mainnet pools
+3. **Check implementations**: Use the modules' `assertSupportedImplementation` guards with the pool's `version()` / `MATH()`
 
 ```typescript
 import { stableswap } from '@yldfi/curve-amm-math';
-import { getStableSwapParams, getOnChainDy } from 'curve-amm-math/rpc';
+import { getStableSwapParams, getOnChainDy } from '@yldfi/curve-amm-math/rpc';
 
 // Verify accuracy
 const params = await getStableSwapParams(rpcUrl, pool);
@@ -629,15 +645,21 @@ console.assert(diff <= tolerance, 'Off-chain calculation exceeds tolerance');
 
 ## Pool Type Reference
 
-| Pool Type | Factory ID | Math Module | Exact Module | Coins |
-|-----------|------------|-------------|--------------|-------|
-| StableSwap (legacy) | Registry | `stableswap` | `stableswapExact` | 2-4 |
-| StableSwapNG | 12 | `stableswap` | `stableswapExact` | 2-8 |
-| StableSwapNG (oracle) | 12 | `stableswap` | `stableswapExact` + `stored_rates()` | 2-8 |
-| triCRV / 3pool | Registry | `tricrv` / `stableswapExact` | `stableswapExact` | 3 |
-| Twocrypto-NG | 13 | `cryptoswap` | - | 2 |
-| Tricrypto-NG | 11 | `cryptoswap` | - | 3 |
-| LlamaLend LLAMMA | Lending | `llamalend` | - | 2 |
+| Pool type (Curve API registry) | Exact module | Notes |
+|-------------------------------|--------------|-------|
+| `main` plain pools (3pool, stETH, FRAXBP, …), `factory` v1 plain | `stableswapExact`, `variant: "legacy"` | 3pool: `ampPrecision: 1n` |
+| `main` aave / saave | `stableswapExact`, `variant: "aave"` | |
+| `main` lending (compound, usdt, y, busd, PAX, Iron Bank) | `stableswapExact` + `compoundRate` / `yearnRate`; `lendingZap` | |
+| `factory-crvusd` | `stableswapExact`, `variant: "plain"` | |
+| `factory-stable-ng` | `stableswapExact`, `variant: "ng"` | |
+| Metapools (`main`, `factory`, stable-ng) | `stableswapExact` + `metapool` | rate 1 = base virtual price |
+| `crypto`, `factory-crypto` (CurveCryptoSwap2, tricrypto2) | `cryptoswap` | crypto metapools: `metapool.crypto*` |
+| `factory-tricrypto` (Tricrypto-NG v2.0.x) | `tricryptoNg` | |
+| `factory-twocrypto`, standard math (v2.0.0 / v2.1.x) | `twocryptoOptimized` | |
+| `factory-twocrypto`, StableswapMath (v2.1.0d / v3.0.0) | `twocryptoStableswap` | pass `policy` |
+| triCRV / 3pool shortcut | `tricrv` | |
+| LlamaLend LLAMMA | `llamalend` | |
+| YieldBasis virtual pools | `yieldbasis` | |
 
 ## References
 
