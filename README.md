@@ -412,12 +412,21 @@ Exact (to the wei) ports of each StableSwap family's liquidity functions.
 | `"legacy"` | `main` registry plain pools (3pool, ETH/stETH, FRAXBP); `factory` v1 plain pools (`plain2basic`, `plain2balances`, `plain2basicema`, `plain2optimized`, `plain3balances`) | no imbalance fee |
 | `"plain"` | `factory-crvusd` pools (crvUSD/USDT, …) | static imbalance fee |
 | `"ng"` | `factory-stable-ng` (`plainstableng`, `plainstableng-old`) | dynamic fee (`offpeg_fee_multiplier`) |
+| `"aave"` | `main` aave and saave pools (aTokens) | no imbalance fee; dynamic fee on withdrawals, deposits and swaps |
 
 Use `ampPrecision: 1n` only for pools without `A_precise()` (3pool); pass
 `ampPrecise` from `A_precise()` otherwise. Pass `adminFee` from `admin_fee()`
 when you use the post-call `balances` (3pool's is 100%, not the 50% default).
-`getDyVariant(params, i, j, dx)` is the exact `get_dy` for every variant. Lending pools (cTokens, aTokens,
-yTokens) need their current rates supplied in `rates`.
+`getDyVariant(params, i, j, dx)` is the exact `get_dy` for every variant.
+
+Lending and rate-token pools take their token rates in `rates`, computed as
+the pools do: `compoundRate(exchangeRateStored, supplyRatePerBlock,
+accrualBlockNumber, blockNumber, underlyingPrecisionMul)` for cToken /
+cyToken coins (compound, usdt, Iron Bank), `yearnRate(getPricePerFullShare,
+underlyingPrecisionMul)` for yTokens (y, PAX), `rETH.getExchangeRate()` for
+ETH/rETH, `ankrAethRate(aETH.ratio())` for ETH/aETH, and `stored_rates()`
+for ETH/wBETH. The ETH/rETH and ETH/aETH pools' `get_dy` has no `- 1`:
+pass `getDySubtractOne: false`.
 
 | Function | Description |
 |----------|-------------|
@@ -432,8 +441,9 @@ yTokens) need their current rates supplied in `rates`.
 Legacy `calc_token_amount` omits the imbalance fee that `add_liquidity`
 charges; use `calcAddLiquidityExact` for the amount minted.
 
-**Not covered:** lending pools' rate accrual (cToken/aToken pools need
-current rates in `rates`).
+**Not covered:** the separate deposit zaps of the old compound, usdt, y and
+PAX lending pools (their pools have no `calc_withdraw_one_coin`; pool-level
+math is covered).
 
 ### Tricrypto-NG and Twocrypto-NG
 
