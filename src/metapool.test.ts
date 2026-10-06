@@ -10,6 +10,8 @@ import liquidityCases from "./__fixtures__/stableswap-liquidity-cases.json";
 import zapTx from "./__fixtures__/metapool-zap-tx-26119731.json";
 import cryptoMetaCases from "./__fixtures__/crypto-metapool-cases.json";
 import cvxCrvTx from "./__fixtures__/cryptoswap-v1-tx-26108142.json";
+import ngZapTx from "./__fixtures__/ng-metapool-zap-tx-26058305.json";
+import cryptoRemoveTx from "./__fixtures__/crypto-metapool-zap-remove-tx-26017270.json";
 
 const big = (xs: readonly string[]) => xs.map((x) => BigInt(x));
 
@@ -289,5 +291,77 @@ describe("crypto metapools: crypto-meta zap views", () => {
     );
     expect(() => metapool.cryptoGetDyUnderlying(params, 1, 1, 1n)).toThrow("must differ");
     expect(() => metapool.cryptoCalcTokenAmountUnderlying(params, [1n])).toThrow("every base coin");
+  });
+});
+
+describe("zap transactions through NG and crypto metapools", () => {
+  it("tx 0x84848e48…: USDT → NG base → USD1 NG metapool, then back out (after a same-block swap)", () => {
+    const P = (c: typeof ngZapTx.base): stableswapExact.StableLiquidityParams => ({
+      variant: "ng",
+      balances: big(c.balances),
+      rates: big(c.stored_rates),
+      A: BigInt(c.A),
+      ampPrecise: BigInt(c.A_precise),
+      ampPrecision: 100n,
+      fee: BigInt(c.fee),
+      offpegFeeMultiplier: BigInt(c.offpeg_fee_multiplier),
+      totalSupply: BigInt(c.totalSupply),
+    });
+    const base0 = P(ngZapTx.base);
+    const meta0 = P(ngZapTx.meta);
+    const r = ngZapTx.result;
+
+    // tx index 14 swapped on the base pool first
+    const s = ngZapTx.priorSwap;
+    const swap = stableswapExact.calcExchangeExact(base0, s.i, s.j, BigInt(s.dx));
+    expect(swap.dy).toBe(BigInt(s.dy));
+    expect(swap.dy).toBe(stableswapExact.getDyVariant(base0, s.i, s.j, BigInt(s.dx)));
+
+    const base = { ...base0, balances: swap.balances };
+    const meta = { ...meta0, rates: [meta0.rates[0], stableswapExact.getVirtualPriceExact(base)] };
+    const amounts = big(r.amounts);
+    const b = stableswapExact.calcAddLiquidityExact(base, amounts.slice(1));
+    expect(b.lpAmount).toBe(BigInt(r.baseMinted));
+    expect(metapool.calcAddLiquidityUnderlying({ meta, base }, amounts)).toBe(BigInt(r.metaMinted));
+
+    const baseAfter = { ...base, balances: b.balances, totalSupply: b.totalSupply };
+    const vpAfter = stableswapExact.getVirtualPriceExact(baseAfter);
+    const m = stableswapExact.calcAddLiquidityExact({ ...meta, rates: [meta.rates[0], vpAfter] }, [0n, b.lpAmount]);
+    const metaAfter = { ...meta, rates: [meta.rates[0], vpAfter], balances: m.balances, totalSupply: m.totalSupply };
+    const lpOut = stableswapExact.calcWithdrawOneCoinExact(metaAfter, m.lpAmount, 1)[0];
+    expect(lpOut).toBe(BigInt(r.metaWithdrawBaseLp));
+    expect(stableswapExact.calcWithdrawOneCoinExact(baseAfter, lpOut, 0)[0]).toBe(BigInt(r.baseWithdrawUsdc));
+  });
+
+  it("tx 0x37e3e3c7…: crypto-meta zap remove_liquidity_one_coin into USDC", () => {
+    const d = cryptoRemoveTx;
+    const params: metapool.CryptoMetapoolParams = {
+      meta: {
+        A: BigInt(d.meta.A),
+        gamma: BigInt(d.meta.gamma),
+        D: BigInt(d.meta.D),
+        midFee: BigInt(d.meta.mid_fee),
+        outFee: BigInt(d.meta.out_fee),
+        feeGamma: BigInt(d.meta.fee_gamma),
+        priceScale: BigInt(d.meta.price_scale),
+        balances: big(d.meta.balances) as [bigint, bigint],
+        precisions: [10n ** BigInt(18 - d.meta.coin0_decimals), 1n],
+      },
+      metaTotalSupply: BigInt(d.meta.totalSupply),
+      base: {
+        variant: "legacy",
+        balances: big(d.base.balances),
+        rates: [10n ** 18n, 10n ** 30n],
+        A: BigInt(d.base.A),
+        ampPrecise: BigInt(d.base.A_precise),
+        ampPrecision: 100n,
+        fee: BigInt(d.base.fee),
+        offpegFeeMultiplier: 0n,
+        totalSupply: BigInt(d.base.totalSupply),
+      },
+    };
+    expect(
+      metapool.cryptoRemoveLiquidityOneCoinUnderlying(params, BigInt(d.result.burn), d.result.i)
+    ).toBe(BigInt(d.result.coinOut));
   });
 });
