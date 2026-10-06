@@ -602,11 +602,12 @@ export function createExactParamsWithRates(
  * | `"legacy"` | 3pool, FRAXBP and other pre-factory     | `D_P * D / (x * N)`        | no fee            | static              |
  * | `"plain"`  | Factory plain pools (Vyper 0.3.x)       | `D_P * D / x`, `/ N^N`     | static fee        | static              |
  * | `"ng"`     | StableSwap-NG                           | `D_P * D / x`, `/ N^N`     | dynamic fee       | `offpeg_fee_multiplier` |
+ * | `"aave"`   | aave, saave (aTokens, `offpeg_fee_multiplier`) | `D_P * D / (x * N)` | no fee            | dynamic (raw-balance `xs`) |
  *
  * Legacy pools without `A_precise()` (3pool) use `ampPrecision: 1n`.
  * Metapools are not covered.
  */
-export type StableSwapVariant = "legacy" | "plain" | "ng";
+export type StableSwapVariant = "legacy" | "plain" | "ng" | "aave";
 
 /**
  * Pool parameters for the exact liquidity functions
@@ -634,6 +635,11 @@ export interface StableLiquidityParams extends ExactPoolParams {
    * false charges the fee first. Defaults to `ampPrecision === 1n`.
    */
   feeAfterScaling?: boolean;
+  /**
+   * `get_dy` subtracts 1 wei from `xp[j] - y` (default true). The ETH/rETH
+   * and ETH/aETH pools do not: pass false for them.
+   */
+  getDySubtractOne?: boolean;
 }
 
 /** Result of an exact add_liquidity / remove_liquidity_imbalance */
@@ -697,7 +703,7 @@ export function getDVariant(
   const Ann = amp * N;
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     let D_P = D;
-    if (variant === "legacy") {
+    if (variant === "legacy" || variant === "aave") {
       for (const x of xp) {
         D_P = (D_P * D) / (x * N);
       }
@@ -797,6 +803,9 @@ function imbalanceFees(
     if (params.variant === "ng") {
       const xs = (params.rates[i] * (old + newBalance)) / PRECISION;
       fee = dynamicFee(xs, ys, baseFee, params.offpegFeeMultiplier);
+    } else if (params.variant === "aave") {
+      // aave pools pass raw (unscaled) balances as xs
+      fee = dynamicFee(old + newBalance, ys, baseFee, params.offpegFeeMultiplier);
     }
     return (fee * difference) / FEE_DENOMINATOR;
   });
@@ -847,7 +856,7 @@ export function calcTokenAmountExact(
   const D1 = getDVariant(getXp(newBalances, rates), amp, variant, ampPrecision);
 
   let D2 = D1;
-  if (variant !== "legacy") {
+  if (variant === "plain" || variant === "ng") {
     if (totalSupply === 0n) return D1;
     const fees = imbalanceFees(params, oldBalances, newBalances, D0, D1);
     D2 = getDVariant(
@@ -1006,7 +1015,9 @@ export function calcWithdrawOneCoinExact(
       xavg = xp_j;
     }
     const fee =
-      variant === "ng" ? dynamicFee(xavg, ys, baseFee, params.offpegFeeMultiplier) : baseFee;
+      variant === "ng" || variant === "aave"
+        ? dynamicFee(xavg, ys, baseFee, params.offpegFeeMultiplier)
+        : baseFee;
     return xp_j - (fee * dxExpected) / FEE_DENOMINATOR;
   });
 
@@ -1093,8 +1104,8 @@ export function getYVariant(
 
 /**
  * Exact `get_dy(i, j, dx)` for any variant: `"legacy"` / `"plain"` charge
- * the static fee (see `feeAfterScaling` for the rounding order), `"ng"` the
- * dynamic fee at the trade's average balances (StableSwap-NG views).
+ * the static fee (see `feeAfterScaling` for the rounding order), `"ng"` and
+ * `"aave"` the dynamic fee at the trade's average balances.
  */
 export function getDyVariant(params: StableLiquidityParams, i: number, j: number, dx: bigint): bigint {
   const ampPrecision = params.ampPrecision ?? A_PRECISION;
@@ -1104,7 +1115,13 @@ export function getDyVariant(params: StableLiquidityParams, i: number, j: number
   const D = getDVariant(xp, amp, params.variant, ampPrecision);
   const x = xp[i] + (dx * rates[i]) / PRECISION;
   const y = getYVariant(i, j, x, xp, amp, D, ampPrecision);
-  let dy = xp[j] - y - 1n;
+  if (params.variant === "aave") {
+    // aave `_get_dy`: no `- 1`, scale first, dynamic fee at average balances
+    const dyA = ((xp[j] - y) * PRECISION) / rates[j];
+    const f = dynamicFee((xp[i] + x) / 2n, (xp[j] + y) / 2n, params.fee, params.offpegFeeMultiplier);
+    return dyA - (f * dyA) / FEE_DENOMINATOR;
+  }
+  let dy = xp[j] - y - (params.getDySubtractOne === false ? 0n : 1n);
   if (dy < 0n) return 0n;
   if (params.variant === "ng") {
     const f =
@@ -1118,4 +1135,42 @@ export function getDyVariant(params: StableLiquidityParams, i: number, j: number
     return dy - (params.fee * dy) / FEE_DENOMINATOR;
   }
   return ((dy - (params.fee * dy) / FEE_DENOMINATOR) * PRECISION) / rates[j];
+}
+
+// ============================================================================
+// Lending / rate-token pool rates
+// ============================================================================
+
+/**
+ * Rate of a Compound-style token (cToken, cyToken) as the compound, usdt
+ * and Iron Bank pools compute it in `_stored_rates`:
+ * `precisionMul * (r + r * supplyRatePerBlock * (block - accrualBlockNumber) / 1e18)`
+ * with `r = exchangeRateStored()`.
+ */
+export function compoundRate(
+  exchangeRateStored: bigint,
+  supplyRatePerBlock: bigint,
+  accrualBlockNumber: bigint,
+  blockNumber: bigint,
+  precisionMul: bigint
+): bigint {
+  const elapsed = blockNumber > accrualBlockNumber ? blockNumber - accrualBlockNumber : 0n;
+  const rate = exchangeRateStored + (exchangeRateStored * supplyRatePerBlock * elapsed) / PRECISION;
+  return precisionMul * rate;
+}
+
+/**
+ * Rate of a yearn v1 yToken as the y / busd / pax pools compute it:
+ * `precisionMul * getPricePerFullShare()`.
+ */
+export function yearnRate(pricePerFullShare: bigint, precisionMul: bigint): bigint {
+  return precisionMul * pricePerFullShare;
+}
+
+/**
+ * Rate of ankr aETH in the ETH/aETH pool: `1e18 * 1e18 / aETH.ratio()`.
+ */
+export function ankrAethRate(ratio: bigint): bigint {
+  if (ratio === 0n) throw new Error("ankrAethRate: ratio cannot be zero");
+  return (PRECISION * PRECISION) / ratio;
 }
