@@ -103,6 +103,10 @@ export type { TricryptoNgParams } from "./tricrypto-ng";
 export * as metapool from "./metapool";
 export type { MetapoolParams, CryptoMetapoolParams } from "./metapool";
 
+// Deposit zaps of the first lending pools (compound, usdt, y, busd, PAX)
+export * as lendingZap from "./lending-zap";
+export type { LendingZapParams } from "./lending-zap";
+
 // Fee-free marginal rates and pool-spot LP valuation (StableSwap, CryptoSwap)
 export * as spot from "./spot";
 export type { Ratio, CryptoSpotState } from "./spot";

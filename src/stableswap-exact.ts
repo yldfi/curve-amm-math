@@ -636,8 +636,8 @@ export interface StableLiquidityParams extends ExactPoolParams {
    */
   feeAfterScaling?: boolean;
   /**
-   * `get_dy` subtracts 1 wei from `xp[j] - y` (default true). The ETH/rETH
-   * and ETH/aETH pools do not: pass false for them.
+   * `get_dy` subtracts 1 wei from `xp[j] - y` (default true). The y, busd,
+   * ETH/rETH and ETH/aETH pools do not: pass false for them.
    */
   getDySubtractOne?: boolean;
 }

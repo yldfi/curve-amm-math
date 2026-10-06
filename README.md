@@ -425,8 +425,8 @@ accrualBlockNumber, blockNumber, underlyingPrecisionMul)` for cToken /
 cyToken coins (compound, usdt, Iron Bank), `yearnRate(getPricePerFullShare,
 underlyingPrecisionMul)` for yTokens (y, PAX), `rETH.getExchangeRate()` for
 ETH/rETH, `ankrAethRate(aETH.ratio())` for ETH/aETH, and `stored_rates()`
-for ETH/wBETH. The ETH/rETH and ETH/aETH pools' `get_dy` has no `- 1`:
-pass `getDySubtractOne: false`.
+for ETH/wBETH. The y, busd, ETH/rETH and ETH/aETH pools' `get_dy` has no
+`- 1`: pass `getDySubtractOne: false`.
 
 | Function | Description |
 |----------|-------------|
@@ -441,9 +441,13 @@ pass `getDySubtractOne: false`.
 Legacy `calc_token_amount` omits the imbalance fee that `add_liquidity`
 charges; use `calcAddLiquidityExact` for the amount minted.
 
-**Not covered:** the separate deposit zaps of the old compound, usdt, y and
-PAX lending pools (their pools have no `calc_withdraw_one_coin`; pool-level
-math is covered).
+The old compound, usdt, y, busd and PAX pools have no
+`calc_withdraw_one_coin`; their deposit zaps (0xeB21209a…, 0xac795D2c…,
+0xbBC81d23…, 0xb6c05759…, 0xA50cCc70…) carry their own approximate math,
+ported in `lendingZap.calcWithdrawOneCoin(params, lpAmount, i)` (rates are the
+tokens' raw `exchangeRateStored()` / `getPricePerFullShare()`) and
+`lendingZap.removeLiquidityOneCoinWrapped` (the wrapped amount the zap
+withdraws, using accrued `exchangeRateCurrent()` rates).
 
 ### Tricrypto-NG and Twocrypto-NG
 
