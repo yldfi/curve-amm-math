@@ -2,12 +2,13 @@
  * curve-amm-math
  *
  * Off-chain TypeScript implementations of Curve AMM math for gas-free calculations.
- * Supports StableSwap (2-8 coins), CryptoSwap (2-3 coins, classic and NG), LlamaLend
+ * Supports StableSwap (every Curve family, incl. metapools and lending pools),
+ * CryptoSwap (classic, Tricrypto-NG, Twocrypto-NG on either math), LlamaLend
  * LLAMMA, YieldBasis virtual pools, and triCRV/3pool helpers.
  *
  * @example Basic StableSwap usage
  * ```typescript
- * import { stableswap } from 'curve-amm-math';
+ * import { stableswap } from '@yldfi/curve-amm-math';
  *
  * const xp = [1000n * 10n**18n, 1100n * 10n**18n]; // Pool balances
  * const Ann = stableswap.computeAnn(100n, 2);      // A=100, 2 coins
@@ -29,7 +30,7 @@
  *
  * @example Basic CryptoSwap usage
  * ```typescript
- * import { cryptoswap } from 'curve-amm-math';
+ * import { cryptoswap } from '@yldfi/curve-amm-math';
  *
  * const params: cryptoswap.CryptoSwapParams = {
  *   A: 400000n,
@@ -63,7 +64,7 @@
 export * as stableswap from "./stableswap";
 export type { StableSwapPoolParams } from "./stableswap";
 
-// Exact precision StableSwap (matches on-chain within ±1 unit)
+// Exact StableSwap: swaps and liquidity for every family, verified to the wei
 export * as stableswapExact from "./stableswap-exact";
 export type {
   ExactPoolParams,
