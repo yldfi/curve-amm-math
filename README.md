@@ -17,7 +17,7 @@
 
 - **StableSwap math** - For pegged asset pools (stablecoins, liquid staking tokens)
 - **Exact precision mode** - Match on-chain results within ±1 wei for all StableSwap pool types
-- **CryptoSwap math** - Exact (to the wei) quotes for classic CryptoSwap pools (CurveCryptoSwap2, tricrypto2), Tricrypto-NG and Twocrypto-NG
+- **CryptoSwap math** - Exact (to the wei) quotes for classic CryptoSwap pools (CurveCryptoSwap2, tricrypto2), Tricrypto-NG and Twocrypto-NG (both math variants)
 - **Exact liquidity math** - add / remove liquidity for legacy, plain and NG StableSwap pools and all CryptoSwap families
 - **Spot math** - Fee-free marginal rates and LP pool-spot value (an upper bound for single-coin withdrawals)
 - **YieldBasis virtual pool math** - For YieldBasis stablecoin <-> asset virtual pool quotes
@@ -425,10 +425,8 @@ yTokens) need their current rates supplied in `rates`.
 Legacy `calc_token_amount` omits the imbalance fee that `add_liquidity`
 charges; use `calcAddLiquidityExact` for the amount minted.
 
-**Not covered:** metapools (`isMetaPool`), Twocrypto-NG liquidity for pools
-whose MATH is StableswapMath (v2.1.0d / v3.0.0; `twocryptoNg` has `get_dy`
-only), Twocrypto-NG v2.0.0, Tricrypto-NG v2.0.1, and the retired tricrypto v1
-(0x80466c64…).
+**Not covered:** metapools (`isMetaPool`), Twocrypto-NG v2.0.0, Tricrypto-NG
+v2.0.1, and the retired tricrypto v1 (0x80466c64…).
 
 ### Tricrypto-NG and Twocrypto-NG
 
@@ -454,6 +452,30 @@ v3.0.0) use `twocryptoNg`.
 *stored* (undecayed) price oracle, as `lp_price()` reads it; the
 `price_oracle(k)` view only equals it when `last_prices_timestamp` is the
 current block.
+
+### Twocrypto on StableswapMath (YieldBasis-style pools)
+
+`twocryptoStableswap` ports the `Twocrypto` v3.0.0 and v2.1.0d pools whose
+MATH is StableswapMath (crvUSD/WBTC, crvUSD/WETH, crvUSD/cbBTC, …). Set
+`params.version` from `pool.version()`; `assertSupportedImplementation`
+checks version and MATH.
+
+| Function | Description |
+|----------|-------------|
+| `getDy(params, i, j, dx)` | `get_dy` (v3.0.0 fee clamp included) |
+| `calcTokenAmount(params, amounts, deposit)` | `calc_token_amount`, incl. the donation-protection LP spam fee |
+| `calcWithdrawOneCoin(params, lpAmount, i)` | `calc_withdraw_one_coin` |
+| `calcWithdrawFixedOut(params, lpAmount, i, amountI)` | `calc_withdraw_fixed_out` |
+| `calcRemoveLiquidity(params, lpAmount)` | Balanced `remove_liquidity` |
+| `getVirtualPrice(params)`, `lpPrice(params, priceOracle)`, `priceOracle(state)`, `fee(params)` | Price and fee getters |
+
+Pass `donation` (the `donation_*` getters and block timestamp) for exact
+deposit quotes while donation protection is active, `isRamping` when
+`future_A_gamma_time > last_timestamp`, and `policyFee` for v3.0.0 pools
+whose POLICY contract sets the fee. State-changing calls claim admin fees
+first; pass the post-claim state when a claim is due. These pools use the
+StableSwap invariant on price-scaled balances, so `spot.cryptoSwap*` does not
+apply to them.
 
 ### Spot - Marginal Rates and LP Spot Value
 
