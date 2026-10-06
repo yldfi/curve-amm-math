@@ -588,3 +588,454 @@ export function createExactParamsWithRates(
  * For maximum accuracy, always fetch stored_rates() from StableSwapNG pools
  * rather than computing from decimals.
  */
+
+// ============================================================================
+// Liquidity (add / remove) - EXACT Vyper match
+// ============================================================================
+
+/**
+ * StableSwap contract family, which decides the invariant loop and the fee
+ * rules of the liquidity functions:
+ *
+ * | Variant    | Pools                                   | get_D loop                 | calc_token_amount | Imbalance fee       |
+ * |------------|-----------------------------------------|----------------------------|-------------------|---------------------|
+ * | `"legacy"` | 3pool, FRAXBP and other pre-factory     | `D_P * D / (x * N)`        | no fee            | static              |
+ * | `"plain"`  | Factory plain pools (Vyper 0.3.x)       | `D_P * D / x`, `/ N^N`     | static fee        | static              |
+ * | `"ng"`     | StableSwap-NG                           | `D_P * D / x`, `/ N^N`     | dynamic fee       | `offpeg_fee_multiplier` |
+ *
+ * Legacy pools without `A_precise()` (3pool) use `ampPrecision: 1n`.
+ * Metapools are not covered.
+ */
+export type StableSwapVariant = "legacy" | "plain" | "ng";
+
+/**
+ * Pool parameters for the exact liquidity functions
+ */
+export interface StableLiquidityParams extends ExactPoolParams {
+  /** Contract family (see {@link StableSwapVariant}) */
+  variant: StableSwapVariant;
+  /** LP token totalSupply() */
+  totalSupply: bigint;
+  /**
+   * The pool's A_PRECISION: 100 (default) for pools with `A_precise()`,
+   * 1 for pools without it (3pool)
+   */
+  ampPrecision?: bigint;
+  /**
+   * The pool's `A_precise()` (or `A()` when ampPrecision is 1). Overrides
+   * `A * ampPrecision`; pass it while A is ramping.
+   */
+  ampPrecise?: bigint;
+  /** Admin share of fees (1e10 precision), default 5e9 (50%) */
+  adminFee?: bigint;
+}
+
+/** Result of an exact add_liquidity / remove_liquidity_imbalance */
+export interface StableLiquidityResult {
+  /** LP minted (add) or burned (remove_liquidity_imbalance) */
+  lpAmount: bigint;
+  /** Per-coin fees in native units (the AddLiquidity / RemoveLiquidityImbalance event `fees`) */
+  fees: bigint[];
+  /** Pool `balances()` after the call (admin share of the fees removed) */
+  balances: bigint[];
+  /** LP totalSupply after the call */
+  totalSupply: bigint;
+  /** Invariant after the call, fees deducted (D2) */
+  D: bigint;
+}
+
+function liquidityAmp(params: StableLiquidityParams): [bigint, bigint] {
+  const ampPrecision = params.ampPrecision ?? A_PRECISION;
+  const amp = params.ampPrecise ?? params.A * ampPrecision;
+  if (amp === 0n) {
+    throw new Error("stableswapExact: amp (A parameter) cannot be zero");
+  }
+  return [amp, ampPrecision];
+}
+
+/**
+ * Invariant D for any variant. `"legacy"` iterates `D_P = D_P * D / (x * N)`
+ * per coin; `"plain"` and `"ng"` iterate `D_P = D_P * D / x` and divide by
+ * N^N once (as {@link getD}). Both stop at |D - D_prev| <= 1.
+ *
+ * @param xp - Normalized balances
+ * @param amp - A * ampPrecision
+ * @param ampPrecision - The pool's A_PRECISION (100, or 1 for 3pool)
+ */
+export function getDVariant(
+  xp: bigint[],
+  amp: bigint,
+  variant: StableSwapVariant,
+  ampPrecision: bigint = A_PRECISION
+): bigint {
+  const N = BigInt(xp.length);
+  if (xp.length < 2) {
+    throw new Error(`getDVariant: pool must have at least 2 coins (got ${xp.length})`);
+  }
+  if (amp === 0n) {
+    throw new Error("getDVariant: amp (A parameter) cannot be zero");
+  }
+
+  let S = 0n;
+  for (const x of xp) {
+    S += x;
+  }
+  if (S === 0n) return 0n;
+  for (const x of xp) {
+    if (x === 0n) {
+      throw new Error("getDVariant: zero balance would cause division by zero");
+    }
+  }
+
+  let D = S;
+  const Ann = amp * N;
+  for (let i = 0; i < MAX_ITERATIONS; i++) {
+    let D_P = D;
+    if (variant === "legacy") {
+      for (const x of xp) {
+        D_P = (D_P * D) / (x * N);
+      }
+    } else {
+      for (const x of xp) {
+        D_P = (D_P * D) / x;
+      }
+      D_P = D_P / N ** N;
+    }
+    const Dprev = D;
+    D =
+      (((Ann * S) / ampPrecision + D_P * N) * D) /
+      (((Ann - ampPrecision) * D) / ampPrecision + (N + 1n) * D_P);
+
+    if (D > Dprev) {
+      if (D - Dprev <= 1n) return D;
+    } else {
+      if (Dprev - D <= 1n) return D;
+    }
+  }
+
+  throw new Error("get_D did not converge");
+}
+
+/**
+ * get_y_D with an explicit A_PRECISION (Vyper `get_y_D` / `_get_y_D`, all
+ * variants): x[i] such that the invariant equals D.
+ */
+export function getYDVariant(
+  amp: bigint,
+  i: number,
+  xp: bigint[],
+  D: bigint,
+  ampPrecision: bigint = A_PRECISION
+): bigint {
+  const nCoins = xp.length;
+  if (i < 0 || i >= nCoins) {
+    throw new Error(`getYDVariant: index out of bounds (i=${i}, nCoins=${nCoins})`);
+  }
+  if (amp === 0n) {
+    throw new Error("getYDVariant: amp (A parameter) cannot be zero");
+  }
+
+  const N = BigInt(nCoins);
+  const Ann = amp * N;
+  let c = D;
+  let S_ = 0n;
+  for (let k = 0; k < nCoins; k++) {
+    if (k === i) continue;
+    if (xp[k] === 0n) {
+      throw new Error(`getYDVariant: zero balance at index ${k} would cause division by zero`);
+    }
+    S_ += xp[k];
+    c = (c * D) / (xp[k] * N);
+  }
+  c = (c * D * ampPrecision) / (Ann * N);
+  const b = S_ + (D * ampPrecision) / Ann;
+
+  let y = D;
+  for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
+    const y_prev = y;
+    const denom = 2n * y + b - D;
+    if (denom <= 0n) {
+      throw new Error("getYDVariant: denominator (2y + b - D) is non-positive");
+    }
+    y = (y * y + c) / denom;
+    if (y > y_prev) {
+      if (y - y_prev <= 1n) return y;
+    } else {
+      if (y_prev - y <= 1n) return y;
+    }
+  }
+
+  throw new Error("get_y_D did not converge");
+}
+
+/**
+ * Per-coin imbalance fees shared by add_liquidity, remove_liquidity_imbalance
+ * and the plain / NG calc_token_amount: `fee_i = fee' * |ideal_i - new_i|`
+ * with `fee' = fee * N / (4 * (N - 1))`, made dynamic for NG pools.
+ */
+function imbalanceFees(
+  params: StableLiquidityParams,
+  oldBalances: bigint[],
+  newBalances: bigint[],
+  D0: bigint,
+  D1: bigint
+): bigint[] {
+  const N = BigInt(oldBalances.length);
+  const baseFee = (params.fee * N) / (4n * (N - 1n));
+  const ys = (D0 + D1) / N;
+  return oldBalances.map((old, i) => {
+    const ideal = (D1 * old) / D0;
+    const newBalance = newBalances[i];
+    const difference = ideal > newBalance ? ideal - newBalance : newBalance - ideal;
+    let fee = baseFee;
+    if (params.variant === "ng") {
+      const xs = (params.rates[i] * (old + newBalance)) / PRECISION;
+      fee = dynamicFee(xs, ys, baseFee, params.offpegFeeMultiplier);
+    }
+    return (fee * difference) / FEE_DENOMINATOR;
+  });
+}
+
+function validateLiquidityAmounts(name: string, params: StableLiquidityParams, amounts: bigint[]): void {
+  if (amounts.length !== params.balances.length) {
+    throw new Error(
+      `${name}: amounts length (${amounts.length}) must match balances length (${params.balances.length})`
+    );
+  }
+  for (const a of amounts) {
+    if (a < 0n) {
+      throw new Error(`${name}: amounts cannot be negative`);
+    }
+  }
+}
+
+/**
+ * Exact `calc_token_amount(amounts, is_deposit)` view, as each variant's
+ * contract returns it:
+ * - `"legacy"`: no fee (`(D1 - D0) * supply / D0`). Legacy `add_liquidity`
+ *   does charge the imbalance fee: use {@link calcAddLiquidityExact} for the
+ *   amount actually minted.
+ * - `"plain"`: static imbalance fee, as `add_liquidity`.
+ * - `"ng"`: dynamic imbalance fee (StableSwap-NG views contract).
+ *
+ * For an empty pool (supply 0) the contract returns D1.
+ */
+export function calcTokenAmountExact(
+  params: StableLiquidityParams,
+  amounts: bigint[],
+  isDeposit: boolean
+): bigint {
+  validateLiquidityAmounts("calcTokenAmountExact", params, amounts);
+  const [amp, ampPrecision] = liquidityAmp(params);
+  const { variant, rates, totalSupply } = params;
+  const oldBalances = params.balances;
+
+  const D0 = getDVariant(getXp(oldBalances, rates), amp, variant, ampPrecision);
+  const newBalances = oldBalances.map((b, i) => {
+    if (isDeposit) return b + amounts[i];
+    if (amounts[i] > b) {
+      throw new Error("calcTokenAmountExact: withdrawal exceeds pool balance");
+    }
+    return b - amounts[i];
+  });
+  const D1 = getDVariant(getXp(newBalances, rates), amp, variant, ampPrecision);
+
+  let D2 = D1;
+  if (variant !== "legacy") {
+    if (totalSupply === 0n) return D1;
+    const fees = imbalanceFees(params, oldBalances, newBalances, D0, D1);
+    D2 = getDVariant(
+      getXp(newBalances.map((b, i) => b - fees[i]), rates),
+      amp,
+      variant,
+      ampPrecision
+    );
+  }
+
+  if (D0 === 0n) {
+    throw new Error("calcTokenAmountExact: pool invariant D is zero");
+  }
+  const diff = isDeposit ? D2 - D0 : D0 - D2;
+  if (diff < 0n) return 0n;
+  return (diff * totalSupply) / D0;
+}
+
+/**
+ * LP minted by `add_liquidity(amounts)`, including the imbalance fee that
+ * every variant's `add_liquidity` charges (legacy `calc_token_amount` omits
+ * it). Exact translation of the state-changing function; also returns the
+ * per-coin fees, the new pool balances and supply.
+ *
+ * The first deposit (supply 0) mints D1 and charges no fee.
+ */
+export function calcAddLiquidityExact(
+  params: StableLiquidityParams,
+  amounts: bigint[]
+): StableLiquidityResult {
+  validateLiquidityAmounts("calcAddLiquidityExact", params, amounts);
+  const [amp, ampPrecision] = liquidityAmp(params);
+  const { variant, rates, totalSupply } = params;
+  const adminFee = params.adminFee ?? 5000000000n;
+  const oldBalances = params.balances;
+
+  const D0 = getDVariant(getXp(oldBalances, rates), amp, variant, ampPrecision);
+  const newBalances = oldBalances.map((b, i) => b + amounts[i]);
+  const D1 = getDVariant(getXp(newBalances, rates), amp, variant, ampPrecision);
+  if (D1 <= D0) {
+    throw new Error("calcAddLiquidityExact: D1 must exceed D0 (nothing deposited)");
+  }
+
+  if (totalSupply === 0n) {
+    return {
+      lpAmount: D1,
+      fees: amounts.map(() => 0n),
+      balances: newBalances,
+      totalSupply: D1,
+      D: D1,
+    };
+  }
+
+  const fees = imbalanceFees(params, oldBalances, newBalances, D0, D1);
+  const D2 = getDVariant(
+    getXp(newBalances.map((b, i) => b - fees[i]), rates),
+    amp,
+    variant,
+    ampPrecision
+  );
+  const lpAmount = (totalSupply * (D2 - D0)) / D0;
+  return {
+    lpAmount,
+    fees,
+    balances: newBalances.map((b, i) => b - (fees[i] * adminFee) / FEE_DENOMINATOR),
+    totalSupply: totalSupply + lpAmount,
+    D: D2,
+  };
+}
+
+/**
+ * LP burned by `remove_liquidity_imbalance(amounts)` (all variants),
+ * including the contract's `+ 1` rounding against the withdrawer.
+ */
+export function calcRemoveLiquidityImbalanceExact(
+  params: StableLiquidityParams,
+  amounts: bigint[]
+): StableLiquidityResult {
+  validateLiquidityAmounts("calcRemoveLiquidityImbalanceExact", params, amounts);
+  const [amp, ampPrecision] = liquidityAmp(params);
+  const { variant, rates, totalSupply } = params;
+  const adminFee = params.adminFee ?? 5000000000n;
+  const oldBalances = params.balances;
+
+  const D0 = getDVariant(getXp(oldBalances, rates), amp, variant, ampPrecision);
+  const newBalances = oldBalances.map((b, i) => {
+    if (amounts[i] > b) {
+      throw new Error("calcRemoveLiquidityImbalanceExact: withdrawal exceeds pool balance");
+    }
+    return b - amounts[i];
+  });
+  const D1 = getDVariant(getXp(newBalances, rates), amp, variant, ampPrecision);
+  const fees = imbalanceFees(params, oldBalances, newBalances, D0, D1);
+  const D2 = getDVariant(
+    getXp(newBalances.map((b, i) => b - fees[i]), rates),
+    amp,
+    variant,
+    ampPrecision
+  );
+  const burned = ((D0 - D2) * totalSupply) / D0;
+  if (burned === 0n) {
+    throw new Error("calcRemoveLiquidityImbalanceExact: zero tokens burned");
+  }
+  const lpAmount = burned + 1n;
+  return {
+    lpAmount,
+    fees,
+    balances: newBalances.map((b, i) => b - (fees[i] * adminFee) / FEE_DENOMINATOR),
+    totalSupply: totalSupply - lpAmount,
+    D: D2,
+  };
+}
+
+/**
+ * Exact `calc_withdraw_one_coin(burn_amount, i)` (and the amount
+ * `remove_liquidity_one_coin` pays). Returns `[dy, fee]` in coin i's native
+ * units, `fee` being `dy_0 - dy` as the contract computes it.
+ *
+ * `"legacy"` / `"plain"` charge the static fee on every coin's expected
+ * change; `"ng"` charges `_dynamic_fee(xavg, (D0 + D1) / (2N))`.
+ */
+export function calcWithdrawOneCoinExact(
+  params: StableLiquidityParams,
+  burnAmount: bigint,
+  i: number
+): [bigint, bigint] {
+  const { variant, rates, totalSupply } = params;
+  const nCoins = params.balances.length;
+  if (i < 0 || i >= nCoins) {
+    throw new Error(`calcWithdrawOneCoinExact: index out of bounds (i=${i}, nCoins=${nCoins})`);
+  }
+  if (totalSupply === 0n) {
+    throw new Error("calcWithdrawOneCoinExact: totalSupply cannot be zero");
+  }
+  if (burnAmount > totalSupply) {
+    throw new Error("calcWithdrawOneCoinExact: burnAmount exceeds totalSupply");
+  }
+  const [amp, ampPrecision] = liquidityAmp(params);
+  const N = BigInt(nCoins);
+
+  const xp = getXp(params.balances, rates);
+  const D0 = getDVariant(xp, amp, variant, ampPrecision);
+  const D1 = D0 - (burnAmount * D0) / totalSupply;
+  const newY = getYDVariant(amp, i, xp, D1, ampPrecision);
+
+  const baseFee = (params.fee * N) / (4n * (N - 1n));
+  const ys = (D0 + D1) / (2n * N);
+  const xpReduced = xp.map((xp_j, j) => {
+    let dxExpected: bigint;
+    let xavg: bigint;
+    if (j === i) {
+      dxExpected = (xp_j * D1) / D0 - newY;
+      xavg = (xp_j + newY) / 2n;
+    } else {
+      dxExpected = xp_j - (xp_j * D1) / D0;
+      xavg = xp_j;
+    }
+    const fee =
+      variant === "ng" ? dynamicFee(xavg, ys, baseFee, params.offpegFeeMultiplier) : baseFee;
+    return xp_j - (fee * dxExpected) / FEE_DENOMINATOR;
+  });
+
+  let dy = xpReduced[i] - getYDVariant(amp, i, xpReduced, D1, ampPrecision);
+  if (dy <= 0n) return [0n, 0n];
+  const dy0 = ((xp[i] - newY) * PRECISION) / rates[i];
+  dy = ((dy - 1n) * PRECISION) / rates[i];
+  return [dy, dy0 - dy];
+}
+
+/**
+ * Coins paid by balanced `remove_liquidity(burn_amount)`:
+ * `balances[i] * burn_amount / totalSupply` (all variants).
+ */
+export function calcRemoveLiquidityExact(
+  params: StableLiquidityParams,
+  burnAmount: bigint
+): bigint[] {
+  if (params.totalSupply === 0n) {
+    throw new Error("calcRemoveLiquidityExact: totalSupply cannot be zero");
+  }
+  if (burnAmount > params.totalSupply) {
+    throw new Error("calcRemoveLiquidityExact: burnAmount exceeds totalSupply");
+  }
+  return params.balances.map((b) => (b * burnAmount) / params.totalSupply);
+}
+
+/**
+ * Exact `get_virtual_price()`: `D * 10^18 / totalSupply` (all variants).
+ */
+export function getVirtualPriceExact(params: StableLiquidityParams): bigint {
+  if (params.totalSupply === 0n) {
+    throw new Error("getVirtualPriceExact: totalSupply cannot be zero");
+  }
+  const [amp, ampPrecision] = liquidityAmp(params);
+  const D = getDVariant(getXp(params.balances, params.rates), amp, params.variant, ampPrecision);
+  return (D * PRECISION) / params.totalSupply;
+}
