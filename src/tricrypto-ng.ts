@@ -39,8 +39,14 @@ import { A_MULTIPLIER, FEE_DENOMINATOR, PRECISION } from "./constants";
 // Implementation identity
 // ============================================
 
-/** `pool.version()` this module is exact for. */
+/** `pool.version()` this module was ported from. */
 export const SUPPORTED_POOL_VERSION = "v2.0.0";
+
+/**
+ * Every `pool.version()` verified exact against on-chain views: v2.0.0
+ * (CurveTricryptoOptimizedWETH) and v2.0.1 (CurveTricryptoOptimized).
+ */
+export const SUPPORTED_POOL_VERSIONS = ["v2.0.0", "v2.0.1"] as const;
 
 /** `pool.MATH()` (CurveTricryptoMathOptimized v2.0.0, Ethereum mainnet) this module is exact for. */
 export const SUPPORTED_MATH_ADDRESS = "0xcbff3004a20dbfe2731543aa38599a526e0fd6ee";
@@ -56,9 +62,9 @@ export const SUPPORTED_VIEWS_ADDRESS = "0x064253915b8449fdefac2c4a74aa9fdf56691a
  * @param mathAddress - `pool.MATH()` (optional; checked when provided)
  */
 export function assertSupportedImplementation(version: string, mathAddress?: string): void {
-  if (version !== SUPPORTED_POOL_VERSION) {
+  if (!(SUPPORTED_POOL_VERSIONS as readonly string[]).includes(version)) {
     throw new Error(
-      `tricryptoNg: unsupported pool version "${version}" (exact only for ${SUPPORTED_POOL_VERSION})`
+      `tricryptoNg: unsupported pool version "${version}" (exact only for ${SUPPORTED_POOL_VERSIONS.join(", ")})`
     );
   }
   if (mathAddress !== undefined && mathAddress.toLowerCase() !== SUPPORTED_MATH_ADDRESS) {

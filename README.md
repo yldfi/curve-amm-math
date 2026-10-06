@@ -425,14 +425,15 @@ yTokens) need their current rates supplied in `rates`.
 Legacy `calc_token_amount` omits the imbalance fee that `add_liquidity`
 charges; use `calcAddLiquidityExact` for the amount minted.
 
-**Not covered:** metapools (`isMetaPool`), Twocrypto-NG v2.0.0, Tricrypto-NG
-v2.0.1, and the retired tricrypto v1 (0x80466c64…).
+**Not covered:** metapools (`isMetaPool`) and the retired tricrypto v1
+(0x80466c64…).
 
 ### Tricrypto-NG and Twocrypto-NG
 
-`tricryptoNg` ports CurveTricryptoOptimizedWETH v2.0.0 (math
-`0xcBFf3004…D6eE`); `twocryptoOptimized` ports CurveTwocryptoOptimized
-v2.1.0/v2.1.1 (math `0x1Fd8Af16…F4A1`). Each exposes
+`tricryptoNg` ports CurveTricryptoOptimizedWETH v2.0.0 and is verified for
+v2.0.1 (math `0xcBFf3004…D6eE`); `twocryptoOptimized` ports
+CurveTwocryptoOptimized v2.1.0/v2.1.1 (math `0x1Fd8Af16…F4A1`) and is verified
+for v2.0.0 (math `0x2005995a…64Df`). Each exposes
 `assertSupportedImplementation(version, mathAddress)`; other versions must not
 be quoted with them. Twocrypto pools whose MATH is StableswapMath (v2.1.0d,
 v3.0.0) use `twocryptoNg`.
