@@ -75,7 +75,7 @@ jobs:
         run: pnpm test:coverage
 
       - name: Upload coverage reports
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         if: always()
         with:
           file: ./coverage/lcov.info
