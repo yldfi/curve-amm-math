@@ -24,6 +24,7 @@
   ],
   "scripts": {
     "build": "tsdown",
+    "check:compat": "node scripts/compat/api.mjs && node scripts/compat/math.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

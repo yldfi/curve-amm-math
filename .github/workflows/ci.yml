@@ -132,3 +132,32 @@ jobs:
 
       - name: Build package
         run: pnpm build
+
+  compat:
+    name: Published compat
+    runs-on: ubuntu-latest
+    needs: [build]
+    # Compares this PR's build with the latest version on npm: runtime exports,
+    # type declarations (mutual assignability) and math results must match.
+    # For an intentional API change, add the `api-change` label and re-run.
+    if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'api-change')
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build package
+        run: pnpm build
+
+      - name: Compare with the published package
+        run: pnpm check:compat
