@@ -16,7 +16,7 @@ permissions:
   id-token: write
 
 env:
-  NODE_VERSION: "22"
+  NODE_VERSION: "24"
   NPM_VERSION: "11.5.1"
   PNPM_VERSION: "11.5.1"
 
