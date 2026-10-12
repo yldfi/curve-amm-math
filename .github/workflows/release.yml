@@ -37,7 +37,7 @@ jobs:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created || inputs.publish_only }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v4
         with:
