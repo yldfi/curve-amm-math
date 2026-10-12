@@ -103,7 +103,7 @@ export function getD(xp: bigint[], amp: bigint, nCoins: number): bigint {
     }
   }
 
-  let Dprev = 0n;
+  let Dprev: bigint;
   let D = S;
   const Ann = amp * N;
 

@@ -159,6 +159,8 @@ async function fetchJsonRpc(
   } catch (error) {
     clearTimeout(timeoutId);
     if (error instanceof Error && error.name === "AbortError") {
+      // Error `cause` needs ES2022 lib; this package targets ES2020.
+      // eslint-disable-next-line preserve-caught-error
       throw new Error(`RPC request timed out after ${timeout}ms`);
     }
     throw error;

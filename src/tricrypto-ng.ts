@@ -538,8 +538,8 @@ export function getY(
     if (k !== i) checkUnsafeXFrac(div(mul(x[k], E18), D));
   }
 
-  let j = 0;
-  let k = 0;
+  let j: number;
+  let k: number;
   if (i === 0) {
     j = 1;
     k = 2;
