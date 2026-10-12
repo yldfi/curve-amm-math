@@ -1,0 +1,31 @@
+name: Dependabot Review Gate
+
+on: pull_request
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: none
+
+jobs:
+  review-gate:
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v3
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Mark minor/patch updates for manual review
+        if: steps.metadata.outputs.update-type == 'version-update:semver-patch' || steps.metadata.outputs.update-type == 'version-update:semver-minor'
+        run: |
+          gh label create needs-review --color FBCA04 --description "Requires human review" --force --repo "$GH_REPO"
+          gh pr edit "$PR_NUMBER" --add-label "needs-review" --repo "$GH_REPO"
+          gh pr comment "$PR_NUMBER" --body "Automatic dependency merging is disabled for supply-chain safety. Review this update after CI passes." --repo "$GH_REPO"
+        env:
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
