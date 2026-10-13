@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2](https://github.com/yldfi/curve-amm-math/compare/v1.5.1...v1.5.2) (2026-10-12)
+
+
+### Bug Fixes
+
+* **deps:** upgrade vitest to 4 and patch dev tooling (Dependabot alerts) ([e6f8ac7](https://github.com/yldfi/curve-amm-math/commit/e6f8ac72336c09c42ccfbaed98c366320425d411))
+* **deps:** upgrade vitest to 4, patch 37 Dependabot alerts ([52923c7](https://github.com/yldfi/curve-amm-math/commit/52923c746c75548e86409644a64d7dd893ee84d3))
+
 ## [1.5.1](https://github.com/yldfi/curve-amm-math/compare/v1.5.0...v1.5.1) (2026-10-06)
 
 
