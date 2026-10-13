@@ -7,7 +7,7 @@ on:
     branches: [master]
 
 env:
-  NODE_VERSION: "22"
+  NODE_VERSION: "24"
   PNPM_VERSION: "11.5.1"
 
 jobs:
@@ -15,13 +15,13 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "pnpm"
@@ -36,13 +36,13 @@ jobs:
     name: Type Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "pnpm"
@@ -57,13 +57,13 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "pnpm"
@@ -75,7 +75,7 @@ jobs:
         run: pnpm test:coverage
 
       - name: Upload coverage reports
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         if: always()
         with:
           file: ./coverage/lcov.info
@@ -90,13 +90,13 @@ jobs:
     # Only run if RPC_URL secret is available (not on forks)
     if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "pnpm"
@@ -116,13 +116,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: [lint, type-check, test]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "pnpm"
@@ -132,3 +132,32 @@ jobs:
 
       - name: Build package
         run: pnpm build
+
+  compat:
+    name: Published compat
+    runs-on: ubuntu-latest
+    needs: [build]
+    # Compares this PR's build with the latest version on npm: runtime exports,
+    # type declarations (mutual assignability) and math results must match.
+    # For an intentional API change, add the `api-change` label and re-run.
+    if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'api-change')
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build package
+        run: pnpm build
+
+      - name: Compare with the published package
+        run: pnpm check:compat

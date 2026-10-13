@@ -15,6 +15,10 @@ updates:
       dependencies:
         patterns:
           - "*"
+        # tsdown is pre-1.0 (minors may break) and controls what gets
+        # published: keep it in its own PR, checked by the Published compat job.
+        exclude-patterns:
+          - "tsdown"
         update-types:
           - "minor"
           - "patch"
