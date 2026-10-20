@@ -452,7 +452,8 @@ Legacy `calc_token_amount` omits the imbalance fee that `add_liquidity`
 charges; use `calcAddLiquidityExact` for the amount minted.
 
 The old compound, usdt, y, busd and PAX pools have no
-`calc_withdraw_one_coin`; their deposit zaps (0xeB21209a…, 0xac795D2c…,
+`calc_withdraw_one_coin` (`calcWithdrawOneCoinExact` still returns a number
+for them, which no pool view matches); their deposit zaps (0xeB21209a…, 0xac795D2c…,
 0xbBC81d23…, 0xb6c05759…, 0xA50cCc70…) carry their own approximate math,
 ported in `lendingZap.calcWithdrawOneCoin(params, lpAmount, i)` (rates are the
 tokens' raw `exchangeRateStored()` / `getPricePerFullShare()`) and
@@ -634,17 +635,17 @@ with `floorRatio`.
 
 | Function | Description |
 |----------|-------------|
-| `getStableSwapParams(rpcUrl, pool, nCoins?, options?)` | Fetch StableSwap pool params |
-| `getExactStableSwapParams(rpcUrl, pool)` | Fetch exact precision params with stored_rates() |
-| `getTriCrvParams(rpcUrl, pool?)` | Fetch exact classic 3pool / triCRV params |
+| `getStableSwapParams(rpcUrl, pool, nCoins?, options?)` | Fetch StableSwap pool params (`blockTag`) |
+| `getExactStableSwapParams(rpcUrl, pool, options?)` | Fetch exact precision params with stored_rates() (`blockTag`) |
+| `getTriCrvParams(rpcUrl, pool?, options?)` | Fetch exact classic 3pool / triCRV params (`blockTag`) |
 | `getLlamaLendAmmParams(rpcUrl, amm, options?)` | Fetch LLAMMA params and band balances |
 | `getBlockNumber(rpcUrl)` | Fetch a block number for pinned exact RPC reads |
-| `getCryptoSwapParams(rpcUrl, pool, precisions?)` | Fetch CryptoSwap 2-coin params |
-| `getTricryptoParams(rpcUrl, pool, precisions?)` | Fetch Tricrypto 3-coin params |
+| `getCryptoSwapParams(rpcUrl, pool, options?)` | Fetch CryptoSwap 2-coin params (`precisions`, `blockTag`) |
+| `getTricryptoParams(rpcUrl, pool, options?)` | Fetch Tricrypto 3-coin params (`precisions`, `blockTag`) |
 | `getTricryptoLegacyState(rpcUrl, pool, options?)` | Fetch a tricrypto2 / tricrypto v1 state (`blockTag`, precisions, totalSupply) |
 | `getOnChainDy(rpcUrl, pool, i, j, dx, factory?)` | On-chain get_dy for verification |
-| `getStoredRates(rpcUrl, pool)` | Fetch dynamic rates for oracle/ERC4626 tokens |
-| `getNCoins(rpcUrl, pool)` | Get number of coins in pool |
+| `getStoredRates(rpcUrl, pool, options?)` | Fetch dynamic rates for oracle/ERC4626 tokens |
+| `getNCoins(rpcUrl, pool, options?)` | Get number of coins in pool |
 | `getPoolCoins(rpcUrl, pool, nCoins?)` | Get token addresses |
 | `getTokenDecimals(rpcUrl, tokens)` | Get decimals for tokens |
 | `previewRedeem(rpcUrl, vault, shares)` | ERC4626 preview redeem |
@@ -692,7 +693,7 @@ console.assert(diff <= tolerance, 'Off-chain calculation exceeds tolerance');
 | Metapools (`main`, `factory`, stable-ng) | `stableswapExact` + `metapool` | rate 1 = base virtual price |
 | `crypto`, `factory-crypto` (CurveCryptoSwap2, tricrypto2) | `cryptoswap` | crypto metapools: `metapool.crypto*`; EUROC/3Crv (`0xE84f5b15…`): `newtonYSingleDivMul2: true` |
 | tricrypto2, tricrypto v1 | `tricryptoLegacy` | read with `getTricryptoLegacyState` |
-| `factory-tricrypto` (Tricrypto-NG v2.0.x) | `tricryptoNg` | |
+| `factory-tricrypto` (Tricrypto-NG v2.0.x) | `tricryptoNg` | includes v2.0.1 pools the API lists with a blank implementation (TriDBR `0x66da369f…`) |
 | `factory-twocrypto`, standard math (v2.0.0 / v2.1.x) | `twocryptoOptimized` | |
 | `factory-twocrypto`, StableswapMath (v2.1.0d / v3.0.0) | `twocryptoStableswap` | pass `policy` |
 | triCRV / 3pool shortcut | `tricrv` | |
