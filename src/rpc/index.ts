@@ -538,6 +538,8 @@ export interface StableSwapFetchOptions {
    * Default: false (returns 0n for failed calls)
    */
   strict?: boolean;
+  /** Block to read at (default "latest") */
+  blockTag?: BatchRpcOptions["blockTag"];
 }
 
 /**
@@ -570,7 +572,10 @@ export async function getStableSwapParams(
     { to: poolAddress, data: SELECTORS.OFFPEG_FEE_MULTIPLIER }
   );
 
-  const results = await batchRpcCalls(rpcUrl, calls, { strict: options.strict });
+  const results = await batchRpcCalls(rpcUrl, calls, {
+    strict: options.strict,
+    blockTag: options.blockTag,
+  });
 
   const rawBalances = results.slice(0, numCoins).map((r) => r ?? 0n);
   const A = results[numCoins] ?? 0n;
@@ -603,9 +608,11 @@ export async function getStableSwapParams(
       // Fetch token addresses then decimals
       const coins = await getPoolCoins(rpcUrl, poolAddress, numCoins, {
         strict: options.strict,
+        blockTag: options.blockTag,
       });
       decimals = await getTokenDecimals(rpcUrl, coins, {
         strict: options.strict,
+        blockTag: options.blockTag,
       });
     }
 
@@ -640,6 +647,8 @@ export interface CryptoSwapFetchOptions {
    * Default: false (returns 0n for failed calls)
    */
   strict?: boolean;
+  /** Block to read at (default "latest") */
+  blockTag?: BatchRpcOptions["blockTag"];
 }
 
 /**
@@ -670,7 +679,10 @@ export async function getCryptoSwapParams(
     { to: poolAddress, data: SELECTORS.PRICE_SCALE },
   ];
 
-  const results = await batchRpcCalls(rpcUrl, calls, { strict: options.strict });
+  const results = await batchRpcCalls(rpcUrl, calls, {
+    strict: options.strict,
+    blockTag: options.blockTag,
+  });
 
   const A = results[2] ?? 0n;
   const gamma = results[3] ?? 0n;
@@ -796,6 +808,8 @@ export interface TricryptoFetchOptions {
    * Default: false (returns 0n for failed calls)
    */
   strict?: boolean;
+  /** Block to read at (default "latest") */
+  blockTag?: BatchRpcOptions["blockTag"];
 }
 
 /**
@@ -829,7 +843,10 @@ export async function getTricryptoParams(
     { to: poolAddress, data: buildPriceScaleCalldata(1) },
   ];
 
-  const results = await batchRpcCalls(rpcUrl, calls, { strict: options.strict });
+  const results = await batchRpcCalls(rpcUrl, calls, {
+    strict: options.strict,
+    blockTag: options.blockTag,
+  });
 
   const A = results[3] ?? 0n;
   const gamma = results[4] ?? 0n;
@@ -1120,7 +1137,8 @@ function decodeStaticArray(data: string): bigint[] {
  */
 export async function getStoredRates(
   rpcUrl: string,
-  poolAddress: string
+  poolAddress: string,
+  options: Pick<BatchRpcOptions, "blockTag"> = {}
 ): Promise<bigint[]> {
   const response = await fetch(rpcUrl, {
     method: "POST",
@@ -1129,7 +1147,10 @@ export async function getStoredRates(
       jsonrpc: "2.0",
       id: 1,
       method: "eth_call",
-      params: [{ to: poolAddress, data: SELECTORS.STORED_RATES }, "latest"],
+      params: [
+        { to: poolAddress, data: SELECTORS.STORED_RATES },
+        encodeBlockTag(options.blockTag),
+      ],
     }),
   });
 
@@ -1147,11 +1168,14 @@ export async function getStoredRates(
  */
 export async function getNCoins(
   rpcUrl: string,
-  poolAddress: string
+  poolAddress: string,
+  options: Pick<BatchRpcOptions, "blockTag"> = {}
 ): Promise<number> {
-  const [result] = await batchRpcCalls(rpcUrl, [
-    { to: poolAddress, data: SELECTORS.N_COINS },
-  ]);
+  const [result] = await batchRpcCalls(
+    rpcUrl,
+    [{ to: poolAddress, data: SELECTORS.N_COINS }],
+    options
+  );
 
   if (result === null) {
     throw new Error(`Failed to fetch N_COINS from ${poolAddress}`);
@@ -1186,16 +1210,18 @@ export interface ExactStableSwapParams {
  *
  * @param rpcUrl - JSON-RPC endpoint URL
  * @param poolAddress - Pool contract address
+ * @param options - `blockTag` to read at (default "latest")
  * @returns Parameters for exact precision calculations
  */
 export async function getExactStableSwapParams(
   rpcUrl: string,
-  poolAddress: string
+  poolAddress: string,
+  options: Pick<BatchRpcOptions, "blockTag"> = {}
 ): Promise<ExactStableSwapParams> {
   // First, get N_COINS and stored_rates (which includes dynamic rates)
   const [nCoins, rates] = await Promise.all([
-    getNCoins(rpcUrl, poolAddress).catch(() => null),
-    getStoredRates(rpcUrl, poolAddress).catch(() => null),
+    getNCoins(rpcUrl, poolAddress, options).catch(() => null),
+    getStoredRates(rpcUrl, poolAddress, options).catch(() => null),
   ]);
 
   // Determine number of coins
@@ -1216,7 +1242,7 @@ export async function getExactStableSwapParams(
     { to: poolAddress, data: SELECTORS.OFFPEG_FEE_MULTIPLIER }
   );
 
-  const results = await batchRpcCalls(rpcUrl, calls);
+  const results = await batchRpcCalls(rpcUrl, calls, options);
 
   const balances = results.slice(0, numCoins).map((r) => r ?? 0n);
   const A = results[numCoins] ?? 0n;
@@ -1226,8 +1252,8 @@ export async function getExactStableSwapParams(
   // If we couldn't get stored_rates, fall back to computing from decimals
   let finalRates = rates;
   if (!finalRates) {
-    const coins = await getPoolCoins(rpcUrl, poolAddress, numCoins);
-    const decimals = await getTokenDecimals(rpcUrl, coins);
+    const coins = await getPoolCoins(rpcUrl, poolAddress, numCoins, options);
+    const decimals = await getTokenDecimals(rpcUrl, coins, options);
     finalRates = decimals.map((d) => 10n ** BigInt(36 - d));
   }
 
@@ -1250,6 +1276,8 @@ export interface TriCrvFetchOptions {
    * Default: false.
    */
   strict?: boolean;
+  /** Block to read at (default "latest") */
+  blockTag?: BatchRpcOptions["blockTag"];
 }
 
 /**
@@ -1264,6 +1292,7 @@ export async function getTriCrvParams(
 ): Promise<ExactStableSwapParams> {
   const params = await getStableSwapParams(rpcUrl, poolAddress, 3, {
     strict: options.strict,
+    blockTag: options.blockTag,
   });
 
   return {

@@ -985,6 +985,10 @@ export function calcRemoveLiquidityImbalanceExact(
  *
  * `"legacy"` / `"plain"` charge the static fee on every coin's expected
  * change; `"ng"` charges `_dynamic_fee(xavg, (D0 + D1) / (2N))`.
+ *
+ * The compound, usdt, y, busd and PAX pools have no `calc_withdraw_one_coin`;
+ * the value returned for them is not a pool view. Use
+ * `lendingZap.calcWithdrawOneCoin` (their deposit zaps' math) instead.
  */
 export function calcWithdrawOneCoinExact(
   params: StableLiquidityParams,
