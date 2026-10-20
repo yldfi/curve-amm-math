@@ -6,7 +6,8 @@
 // - Types: every published export (namespace members expanded) must be
 //   mutually assignable between the published and local declarations.
 //
-// New exports are allowed; anything removed, changed or broken fails.
+// New exports are allowed, and so are entries appended to an exported array
+// (e.g. a list of known addresses); anything removed, changed or broken fails.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
@@ -37,6 +38,21 @@ const describe = (mod) =>
     }),
   );
 
+// The local value with appended array entries and new object keys dropped, so
+// growth alone compares equal to the published value.
+const isObject = (x) => x !== null && typeof x === "object";
+const trimToPublished = (pub, loc) => {
+  if (Array.isArray(pub) && Array.isArray(loc) && loc.length >= pub.length) {
+    return loc.slice(0, pub.length).map((x, i) => trimToPublished(pub[i], x));
+  }
+  if (isObject(pub) && isObject(loc) && !Array.isArray(pub) && !Array.isArray(loc)) {
+    return Object.fromEntries(
+      Object.keys(loc).filter((k) => k in pub).map((k) => [k, trimToPublished(pub[k], loc[k])]),
+    );
+  }
+  return loc;
+};
+
 for (const e of pubEntries) {
   const local = localEntries.get(e.subpath);
   if (!local) {
@@ -46,12 +62,16 @@ for (const e of pubEntries) {
   for (const fmt of ["require", "import"]) {
     const load = (dir, rel) =>
       fmt === "require" ? require(join(dir, rel)) : import(pathToFileURL(join(dir, rel)).href);
-    const before = describe(await load(published.dir, e[fmt]));
-    const after = describe(await load(root, local[fmt]));
+    const beforeMod = await load(published.dir, e[fmt]);
+    const afterMod = await load(root, local[fmt]);
+    const before = describe(beforeMod);
+    const after = describe(afterMod);
+    const appended = (name) =>
+      describe({ x: trimToPublished(beforeMod[name], afterMod[name]) }).x === before[name];
     let changed = 0;
     for (const [name, sig] of Object.entries(before)) {
       if (!(name in after)) problems.push(`${e.subpath} [${fmt}] export removed: ${name}`), changed++;
-      else if (after[name] !== sig) problems.push(`${e.subpath} [${fmt}] ${name}: ${sig.slice(0, 80)} -> ${after[name].slice(0, 80)}`), changed++;
+      else if (after[name] !== sig && !appended(name)) problems.push(`${e.subpath} [${fmt}] ${name}: ${sig.slice(0, 80)} -> ${after[name].slice(0, 80)}`), changed++;
     }
     const added = Object.keys(after).filter((k) => !(k in before)).length;
     console.log(`  runtime ${e.subpath} [${fmt}]: ${Object.keys(before).length} published exports, ${changed} changed/removed, ${added} added`);

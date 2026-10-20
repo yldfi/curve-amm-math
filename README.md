@@ -572,7 +572,12 @@ deposit quotes while donation protection is active, `isRamping` when
 `future_A_gamma_time > last_timestamp`. v3.0.0 pools also need `policy`
 (`pool.POLICY()`): the zero address and the known `YBTwocryptoPolicy`
 contracts (`ZERO_FEE_POLICIES`, whose `get_fee` is a pure `return 0`) quote
-with the pool's own fee; any other policy throws unless `policyFee` models it. State-changing calls claim admin fees
+with the pool's own fee; any other policy throws unless `policyFee` models it. The
+`YBOraclizedPolicy` contracts (crvUSD/WETH `0x84625483…`, `0x40bd9fE1…`)
+charge their `fallback_fee` unless a fresh Pyth report makes the swap
+corrective, so pass `policyFee` returning the policy's `get_fee(xp)`; while
+the report is older than `report_expiry_s` that is `fallback_fee` for every
+call. State-changing calls claim admin fees
 first; pass the post-claim state when a claim is due. These pools use the
 StableSwap invariant on price-scaled balances, so `spot.cryptoSwap*` does not
 apply to them.

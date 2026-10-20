@@ -37,6 +37,8 @@ interface Case {
   calc_token_amount: { amounts: string[]; deposit: boolean; result: string }[];
   calc_withdraw_one_coin: { tokenAmount: string; i: number; result: string }[];
   calc_withdraw_fixed_out: { tokenAmount: string; i: number; amount_i: string; result: string }[];
+  /** YBOraclizedPolicy state; its Pyth report had expired, so get_fee is fallback_fee */
+  policyModel?: { kind: string; feeParams: { fallbackFee: string; reportExpiryS: string }; reportAgeS: string };
 }
 
 const big = (xs: readonly string[]) => xs.map((x) => BigInt(x));
@@ -65,6 +67,9 @@ function toParams(c: Case): twocryptoStableswap.TwocryptoStableswapParams {
           sharesMaxRatio: BigInt(c.donation_shares_max_ratio!),
           blockTimestamp: BigInt(c.blockTimestamp),
         }
+      : undefined,
+    policyFee: c.policyModel?.kind.startsWith("YBOraclizedPolicy")
+      ? () => BigInt(c.policyModel!.feeParams.fallbackFee)
       : undefined,
   };
 }
@@ -106,6 +111,12 @@ describe("Twocrypto (StableswapMath) on-chain views", () => {
           ).toBe(BigInt(v.result));
         }
       });
+
+      if (c.policyModel?.kind.startsWith("YBOraclizedPolicy")) {
+        it("the policy's report had expired, so get_fee is fallback_fee", () => {
+          expect(BigInt(c.policyModel!.reportAgeS)).toBeGreaterThan(BigInt(c.policyModel!.feeParams.reportExpiryS));
+        });
+      }
 
       it("newton_D of the balances is within 0.1% of stored D", () => {
         const D = twocryptoStableswap.newtonD(params.A, twocryptoStableswap.xp(params));
@@ -202,6 +213,30 @@ describe("Twocrypto (StableswapMath) behaviour", () => {
     expect(() =>
       twocryptoStableswap.calcTokenAmount(params, [params.balances[0] + 1n, 0n], false)
     ).toThrow("exceeds pool balance");
+  });
+
+  it("calc_token_amount reverts where supply - d_token underflows", () => {
+    // crvUSD/WETH Oracle Test 0x40bd9fE1… at block 26236847 (a dust pool):
+    // calc_token_amount([56, 0], False) reverts on chain
+    const dust: twocryptoStableswap.TwocryptoStableswapParams = {
+      ...params,
+      policy: undefined,
+      policyFee: () => 150000000n,
+      A: 50000n,
+      gamma: 11111111111n,
+      D: 1064460n,
+      midFee: 150000000n,
+      outFee: 150000000n,
+      feeGamma: 30000000000000000n,
+      priceScale: 2716521583176149081327n,
+      balances: [564940n, 185n],
+      precisions: [1n, 1n],
+      totalSupply: 10001n,
+      isRamping: false,
+      donation: undefined,
+    };
+    expect(twocryptoStableswap.calcTokenAmount(dust, [5649n, 0n], false)).toBe(28n);
+    expect(() => twocryptoStableswap.calcTokenAmount(dust, [56n, 0n], false)).toThrow("d_token underflow");
   });
 });
 
