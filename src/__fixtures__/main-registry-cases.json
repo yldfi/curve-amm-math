@@ -553,7 +553,8 @@
     "dx": "1919460",
     "r": "5634053670548387562"
    },
-   "variant": "legacy"
+   "variant": "plain",
+   "calcTokenAmountFee": false
   },
   {
    "pool": "0x4e0915c88bc70750d68c481540f081fefaf22273",

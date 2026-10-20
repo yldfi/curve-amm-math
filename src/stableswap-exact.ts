@@ -599,8 +599,8 @@ export function createExactParamsWithRates(
  *
  * | Variant    | Pools                                   | get_D loop                 | calc_token_amount | Imbalance fee       |
  * |------------|-----------------------------------------|----------------------------|-------------------|---------------------|
- * | `"legacy"` | 3pool, FRAXBP and other pre-factory     | `D_P * D / (x * N)`        | no fee            | static              |
- * | `"plain"`  | Factory plain pools (Vyper 0.3.x)       | `D_P * D / x`, `/ N^N`     | static fee        | static              |
+ * | `"legacy"` | 3pool, FRAXBP and other pre-factory; 3- and 4-coin factory v1 plain pools | `D_P * D / (x * N)` | no fee | static |
+ * | `"plain"`  | crvUSD factory pools; 2-coin factory v1 plain pools (`calcTokenAmountFee: false`) | `D_P * D / x`, `/ N^N` | static fee | static |
  * | `"ng"`     | StableSwap-NG                           | `D_P * D / x`, `/ N^N`     | dynamic fee       | `offpeg_fee_multiplier` |
  * | `"aave"`   | aave, saave (aTokens, `offpeg_fee_multiplier`) | `D_P * D / (x * N)` | no fee            | dynamic (raw-balance `xs`) |
  *
@@ -644,8 +644,10 @@ export interface StableLiquidityParams extends ExactPoolParams {
    * Whether the `calc_token_amount` view deducts the imbalance fee. Defaults
    * to true for `"plain"` / `"ng"` and false for `"legacy"` / `"aave"`. Pass
    * false for `"plain"` crvUSD factory pools at `version()` v5.0.0
-   * (CurveStableSwap2Balances / CurveStableSwap2Prices), whose view omits the
-   * fee that their `add_liquidity` charges.
+   * (CurveStableSwap2Balances / CurveStableSwap2Prices) and for 2-coin
+   * factory v1 plain pools (`plain2*`, whose get_D unrolls
+   * `D * D / x0 * D / x1 / N^2` like `"plain"`), whose view omits the fee
+   * that their `add_liquidity` charges.
    */
   calcTokenAmountFee?: boolean;
 }
@@ -839,7 +841,8 @@ function validateLiquidityAmounts(name: string, params: StableLiquidityParams, a
  *   does charge the imbalance fee: use {@link calcAddLiquidityExact} for the
  *   amount actually minted.
  * - `"plain"`: static imbalance fee, as `add_liquidity` (crvUSD factory
- *   v5.0.0 pools omit it: pass `calcTokenAmountFee: false`).
+ *   v5.0.0 and 2-coin factory v1 pools omit it: pass
+ *   `calcTokenAmountFee: false`).
  * - `"ng"`: dynamic imbalance fee (StableSwap-NG views contract), computed
  *   with `A * A_PRECISION` like the views (`ampPrecise` is ignored, so while A
  *   ramps the quote differs from the mint in {@link calcAddLiquidityExact}).

@@ -25,6 +25,7 @@ interface LiquidityCase {
   get_virtual_price: string;
   calc_token_amount: { amounts: string[]; isDeposit: boolean; result: string }[];
   calc_withdraw_one_coin: { burnAmount: string; i: number; result: string }[];
+  get_dy?: { i: number; j: number; dx: string; result: string }[];
   add_liquidity?: { amounts: string[]; minted: string; fees: string[]; totalSupplyAfter: string };
 }
 
@@ -62,6 +63,14 @@ describe("stableswapExact liquidity: on-chain views", () => {
           ).toBe(BigInt(v.result));
         }
       });
+
+      if (c.get_dy) {
+        it("get_dy", () => {
+          for (const v of c.get_dy!) {
+            expect(stableswapExact.getDyVariant(params, v.i, v.j, BigInt(v.dx))).toBe(BigInt(v.result));
+          }
+        });
+      }
 
       it("calc_withdraw_one_coin", () => {
         for (const v of c.calc_withdraw_one_coin) {
