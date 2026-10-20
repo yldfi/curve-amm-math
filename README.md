@@ -685,7 +685,7 @@ console.assert(diff <= tolerance, 'Off-chain calculation exceeds tolerance');
 | `factory-crvusd` | `stableswapExact`, `variant: "plain"` | `version()` v5.0.0 (crvUSD-sDAI, -sFRAX, -USDM, -STBT, …): `calcTokenAmountFee: false`; 2Prices pools: `rates` from `stored_rates()` |
 | `factory-stable-ng` | `stableswapExact`, `variant: "ng"` | |
 | Metapools (`main`, `factory`, stable-ng) | `stableswapExact` + `metapool` | rate 1 = base virtual price |
-| `crypto`, `factory-crypto` (CurveCryptoSwap2, tricrypto2) | `cryptoswap` | crypto metapools: `metapool.crypto*` |
+| `crypto`, `factory-crypto` (CurveCryptoSwap2, tricrypto2) | `cryptoswap` | crypto metapools: `metapool.crypto*`; EUROC/3Crv (`0xE84f5b15…`): `newtonYSingleDivMul2: true` |
 | tricrypto2, tricrypto v1 | `tricryptoLegacy` | read with `getTricryptoLegacyState` |
 | `factory-tricrypto` (Tricrypto-NG v2.0.x) | `tricryptoNg` | |
 | `factory-twocrypto`, standard math (v2.0.0 / v2.1.x) | `twocryptoOptimized` | |

@@ -77,6 +77,13 @@ export interface TwocryptoParams extends CryptoPoolParamsBase {
   balances: [bigint, bigint];
   /** Token precisions (10^(18-decimals) for each token) */
   precisions?: [bigint, bigint];
+  /**
+   * `newton_y` divides once: `mul2 = (10^18 + 2 * 10^18 * K0) / _g1k0`
+   * instead of `10^18 + 2 * 10^18 * K0 / _g1k0`. Set true for EUROC/3Crv
+   * (0xE84f5b15…, the Vyper 0.3.3 rewrite with `unsafe_div`); every other
+   * CurveCryptoSwap2 deployment uses the standard form.
+   */
+  newtonYSingleDivMul2?: boolean;
 }
 
 /**
@@ -107,13 +114,15 @@ export type CryptoSwapParams = TwocryptoParams;
  * @param x - scaled balances [x0, x1]
  * @param D - invariant D
  * @param i - index of the output token (the one we're solving for)
+ * @param singleDivMul2 - EUROC/3Crv rounding (see `TwocryptoParams.newtonYSingleDivMul2`)
  */
 export function newtonY(
   A: bigint,
   gamma: bigint,
   x: [bigint, bigint],
   D: bigint,
-  i: number
+  i: number,
+  singleDivMul2: boolean = false
 ): bigint {
   const N_COINS = 2n;
 
@@ -186,7 +195,10 @@ export function newtonY(
       (((((PRECISION * D) / gamma) * _g1k0) / gamma) * _g1k0 * A_MULTIPLIER) / A;
 
     // mul2 = 10^18 + (2 * 10^18) * K0 / _g1k0
-    const mul2 = PRECISION + (2n * PRECISION * K0) / _g1k0;
+    // (EUROC/3Crv: unsafe_div(10**18 + (2 * 10**18) * K0, _g1k0))
+    const mul2 = singleDivMul2
+      ? (PRECISION + 2n * PRECISION * K0) / _g1k0
+      : PRECISION + (2n * PRECISION * K0) / _g1k0;
 
     // yfprime = 10^18 * y + S * mul2 + mul1
     const yfprime_base = PRECISION * y + S * mul2 + mul1;
@@ -749,7 +761,7 @@ export function getDy(
   const xp = scaleBalances(newBalances, precisions, priceScale);
 
   // Newton's method to find new y
-  const y = newtonY(A, gamma, xp, D, j);
+  const y = newtonY(A, gamma, xp, D, j, params.newtonYSingleDivMul2);
 
   // dy = xp[j] - y - 1
   let dy = xp[j] - y - 1n;
@@ -1357,7 +1369,7 @@ function withdrawOneCoin2(
   const priceScaleI =
     i === 0 ? PRECISION * precisions[0] : params.priceScale * precisions[1];
   return withdrawOneCoinFromXp(params, xp, D0, tokenAmount, totalSupply, i, priceScaleI, (D) =>
-    newtonY(params.A, params.gamma, xp, D, i)
+    newtonY(params.A, params.gamma, xp, D, i, params.newtonYSingleDivMul2)
   );
 }
 
