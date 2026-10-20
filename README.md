@@ -414,8 +414,8 @@ Exact (to the wei) ports of each StableSwap family's liquidity functions.
 
 | `variant` | Pools (Curve API registry / implementation) | `calc_token_amount` |
 |-----------|-------|---------------------|
-| `"legacy"` | `main` registry plain pools (3pool, ETH/stETH, FRAXBP); `factory` v1 plain pools (`plain2basic`, `plain2balances`, `plain2basicema`, `plain2optimized`, `plain3balances`) | no imbalance fee |
-| `"plain"` | `factory-crvusd` pools (crvUSD/USDT, …) | static imbalance fee |
+| `"legacy"` | `main` registry plain pools (3pool, ETH/stETH, FRAXBP); 3- and 4-coin `factory` v1 plain pools (`plain3basic`, `plain3balances`, `plain3optimized`, `plain4basic`, `plain4optimized`) | no imbalance fee |
+| `"plain"` | `factory-crvusd` pools (crvUSD/USDT, …); 2-coin `factory` v1 plain pools (`plain2basic`, `plain2balances`, `plain2basicema`, `plain2optimized`, `plain2eth`, `plain2ethema`, and the stETH-ng / ETHx-ETH implementation) | static imbalance fee; none for 2-coin `factory` v1 pools and crvUSD `version()` v5.0.0 pools (pass `calcTokenAmountFee: false`) |
 | `"ng"` | `factory-stable-ng` (`plainstableng`, `plainstableng-old`) | dynamic fee (`offpeg_fee_multiplier`) |
 | `"aave"` | `main` aave and saave pools (aTokens) | no imbalance fee; dynamic fee on withdrawals, deposits and swaps |
 
@@ -452,7 +452,8 @@ Legacy `calc_token_amount` omits the imbalance fee that `add_liquidity`
 charges; use `calcAddLiquidityExact` for the amount minted.
 
 The old compound, usdt, y, busd and PAX pools have no
-`calc_withdraw_one_coin`; their deposit zaps (0xeB21209a…, 0xac795D2c…,
+`calc_withdraw_one_coin` (`calcWithdrawOneCoinExact` still returns a number
+for them, which no pool view matches); their deposit zaps (0xeB21209a…, 0xac795D2c…,
 0xbBC81d23…, 0xb6c05759…, 0xA50cCc70…) carry their own approximate math,
 ported in `lendingZap.calcWithdrawOneCoin(params, lpAmount, i)` (rates are the
 tokens' raw `exchangeRateStored()` / `getPricePerFullShare()`) and
@@ -524,7 +525,9 @@ Pool-level metapool math is the `stableswapExact` liquidity API with
 `factory` v1 metapools) or `stored_rates()` (`"ng"` for stable-ng metapools).
 `baseVirtualPrice` is the base pool's live `get_virtual_price()`, except old
 `main` metapools while their 10-minute cache (`base_virtual_price()`,
-`base_cache_updated()`) is fresh. The `metapool` module adds the paths that
+`base_cache_updated()`) is fresh. RAI3CRV (`0x61878835…`) prices RAI at its
+redemption price: its `rates[0]` is `snappedRedemptionPrice() / 10^9`, read
+from the pool's `redemption_price_snap()` contract at the same block. The `metapool` module adds the paths that
 go through the base pool:
 
 | Function | Description |
@@ -570,7 +573,12 @@ deposit quotes while donation protection is active, `isRamping` when
 `future_A_gamma_time > last_timestamp`. v3.0.0 pools also need `policy`
 (`pool.POLICY()`): the zero address and the known `YBTwocryptoPolicy`
 contracts (`ZERO_FEE_POLICIES`, whose `get_fee` is a pure `return 0`) quote
-with the pool's own fee; any other policy throws unless `policyFee` models it. State-changing calls claim admin fees
+with the pool's own fee; any other policy throws unless `policyFee` models it. The
+`YBOraclizedPolicy` contracts (crvUSD/WETH `0x84625483…`, `0x40bd9fE1…`)
+charge their `fallback_fee` unless a fresh Pyth report makes the swap
+corrective, so pass `policyFee` returning the policy's `get_fee(xp)`; while
+the report is older than `report_expiry_s` that is `fallback_fee` for every
+call. State-changing calls claim admin fees
 first; pass the post-claim state when a claim is due. These pools use the
 StableSwap invariant on price-scaled balances, so `spot.cryptoSwap*` does not
 apply to them.
@@ -627,17 +635,17 @@ with `floorRatio`.
 
 | Function | Description |
 |----------|-------------|
-| `getStableSwapParams(rpcUrl, pool, nCoins?, options?)` | Fetch StableSwap pool params |
-| `getExactStableSwapParams(rpcUrl, pool)` | Fetch exact precision params with stored_rates() |
-| `getTriCrvParams(rpcUrl, pool?)` | Fetch exact classic 3pool / triCRV params |
+| `getStableSwapParams(rpcUrl, pool, nCoins?, options?)` | Fetch StableSwap pool params (`blockTag`) |
+| `getExactStableSwapParams(rpcUrl, pool, options?)` | Fetch exact precision params with stored_rates() (`blockTag`) |
+| `getTriCrvParams(rpcUrl, pool?, options?)` | Fetch exact classic 3pool / triCRV params (`blockTag`) |
 | `getLlamaLendAmmParams(rpcUrl, amm, options?)` | Fetch LLAMMA params and band balances |
 | `getBlockNumber(rpcUrl)` | Fetch a block number for pinned exact RPC reads |
-| `getCryptoSwapParams(rpcUrl, pool, precisions?)` | Fetch CryptoSwap 2-coin params |
-| `getTricryptoParams(rpcUrl, pool, precisions?)` | Fetch Tricrypto 3-coin params |
+| `getCryptoSwapParams(rpcUrl, pool, options?)` | Fetch CryptoSwap 2-coin params (`precisions`, `blockTag`) |
+| `getTricryptoParams(rpcUrl, pool, options?)` | Fetch Tricrypto 3-coin params (`precisions`, `blockTag`) |
 | `getTricryptoLegacyState(rpcUrl, pool, options?)` | Fetch a tricrypto2 / tricrypto v1 state (`blockTag`, precisions, totalSupply) |
 | `getOnChainDy(rpcUrl, pool, i, j, dx, factory?)` | On-chain get_dy for verification |
-| `getStoredRates(rpcUrl, pool)` | Fetch dynamic rates for oracle/ERC4626 tokens |
-| `getNCoins(rpcUrl, pool)` | Get number of coins in pool |
+| `getStoredRates(rpcUrl, pool, options?)` | Fetch dynamic rates for oracle/ERC4626 tokens |
+| `getNCoins(rpcUrl, pool, options?)` | Get number of coins in pool |
 | `getPoolCoins(rpcUrl, pool, nCoins?)` | Get token addresses |
 | `getTokenDecimals(rpcUrl, tokens)` | Get decimals for tokens |
 | `previewRedeem(rpcUrl, vault, shares)` | ERC4626 preview redeem |
@@ -676,15 +684,16 @@ console.assert(diff <= tolerance, 'Off-chain calculation exceeds tolerance');
 
 | Pool type (Curve API registry) | Exact module | Notes |
 |-------------------------------|--------------|-------|
-| `main` plain pools (3pool, stETH, FRAXBP, …), `factory` v1 plain | `stableswapExact`, `variant: "legacy"` | 3pool: `ampPrecision: 1n` |
+| `main` plain pools (3pool, stETH, FRAXBP, …), 3- and 4-coin `factory` v1 plain | `stableswapExact`, `variant: "legacy"` | 3pool: `ampPrecision: 1n` |
+| 2-coin `factory` v1 plain (`plain2*`, stETH-ng, ETHx-ETH) | `stableswapExact`, `variant: "plain"`, `calcTokenAmountFee: false` | `rates` from `stored_rates()` where the pool has it |
 | `main` aave / saave | `stableswapExact`, `variant: "aave"` | |
 | `main` lending (compound, usdt, y, busd, PAX, Iron Bank) | `stableswapExact` + `compoundRate` / `yearnRate`; `lendingZap` | |
-| `factory-crvusd` | `stableswapExact`, `variant: "plain"` | |
+| `factory-crvusd` | `stableswapExact`, `variant: "plain"` | `version()` v5.0.0 (crvUSD-sDAI, -sFRAX, -USDM, -STBT, …): `calcTokenAmountFee: false`; 2Prices pools: `rates` from `stored_rates()` |
 | `factory-stable-ng` | `stableswapExact`, `variant: "ng"` | |
 | Metapools (`main`, `factory`, stable-ng) | `stableswapExact` + `metapool` | rate 1 = base virtual price |
-| `crypto`, `factory-crypto` (CurveCryptoSwap2, tricrypto2) | `cryptoswap` | crypto metapools: `metapool.crypto*` |
+| `crypto`, `factory-crypto` (CurveCryptoSwap2, tricrypto2) | `cryptoswap` | crypto metapools: `metapool.crypto*`; EUROC/3Crv (`0xE84f5b15…`): `newtonYSingleDivMul2: true` |
 | tricrypto2, tricrypto v1 | `tricryptoLegacy` | read with `getTricryptoLegacyState` |
-| `factory-tricrypto` (Tricrypto-NG v2.0.x) | `tricryptoNg` | |
+| `factory-tricrypto` (Tricrypto-NG v2.0.x) | `tricryptoNg` | includes v2.0.1 pools the API lists with a blank implementation (TriDBR `0x66da369f…`) |
 | `factory-twocrypto`, standard math (v2.0.0 / v2.1.x) | `twocryptoOptimized` | |
 | `factory-twocrypto`, StableswapMath (v2.1.0d / v3.0.0) | `twocryptoStableswap` | pass `policy` |
 | triCRV / 3pool shortcut | `tricrv` | |

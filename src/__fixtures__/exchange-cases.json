@@ -292,7 +292,7 @@
   {
    "name": "plain2balances",
    "pool": "0x4d9f9d15101eec665f77210cb999639f760f831e",
-   "variant": "legacy",
+   "variant": "plain",
    "decimals": [
     18,
     18
@@ -323,7 +323,7 @@
   {
    "name": "plain2balances",
    "pool": "0x4d9f9d15101eec665f77210cb999639f760f831e",
-   "variant": "legacy",
+   "variant": "plain",
    "decimals": [
     18,
     18
@@ -354,7 +354,7 @@
   {
    "name": "plain2balances",
    "pool": "0x4d9f9d15101eec665f77210cb999639f760f831e",
-   "variant": "legacy",
+   "variant": "plain",
    "decimals": [
     18,
     18

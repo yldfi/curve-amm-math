@@ -397,7 +397,7 @@ describe("tricrypto2 views at block 26132000", () => {
   });
 });
 
-describe("other classic crypto pools (EURS/USDC, T/ETH, tricrypto v1)", () => {
+describe("other classic crypto pools (EURS/USDC, T/ETH, tricrypto v1, EUROC/3Crv)", () => {
   for (const c of extraCases.cases as {
     name: string;
     n: number;
@@ -413,7 +413,10 @@ describe("other classic crypto pools (EURS/USDC, T/ETH, tricrypto v1)", () => {
     price_scale: string[];
     totalSupply: string;
     decimals: number[];
+    newtonYSingleDivMul2?: boolean;
     cwo: { amt: string; i: number; r: string }[];
+    get_dy?: { i: number; j: number; dx: string; r: string }[];
+    cta?: { amounts: string[]; r: string }[];
   }[]) {
     it(c.name, () => {
       const precisions = c.decimals.map((d) => 10n ** BigInt(18 - d));
@@ -436,8 +439,17 @@ describe("other classic crypto pools (EURS/USDC, T/ETH, tricrypto v1)", () => {
             priceScale: BigInt(c.price_scale[0]),
             balances: big(c.balances) as [bigint, bigint],
             precisions: precisions as [bigint, bigint],
+            newtonYSingleDivMul2: c.newtonYSingleDivMul2,
           };
           dy = cryptoswap.calcWithdrawOneCoin(p, BigInt(w.amt), w.i, supply);
+          for (const v of c.get_dy ?? []) {
+            expect(cryptoswap.getDy(p, v.i, v.j, BigInt(v.dx))).toBe(BigInt(v.r));
+          }
+          for (const v of c.cta ?? []) {
+            expect(cryptoswap.calcTokenAmount(p, big(v.amounts) as [bigint, bigint], supply)).toBe(
+              BigInt(v.r)
+            );
+          }
           expect(cryptoswap.getVirtualPrice(p, supply)).toBe(BigInt(c.get_virtual_price));
         } else {
           const p: cryptoswap.TricryptoParams = {

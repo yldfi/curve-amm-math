@@ -109,7 +109,10 @@ export function getDyUnderlying(params: MetapoolParams, i: number, j: number, dx
   }
 
   if (j === 0) {
-    return isNg ? (dy * PRECISION) / rates[0] : dy / (rates[0] / PRECISION);
+    // `dy * PRECISION / rate` equals the legacy `dy / (rate / PRECISION)`
+    // whenever the rate is a multiple of 1e18 (10^(36 - decimals)); RAI3CRV's
+    // redemption-price rate is not.
+    return (dy * PRECISION) / rates[0];
   }
   return calcWithdrawOneCoinExact(base, (dy * PRECISION) / rates[1], j - 1)[0];
 }

@@ -21,9 +21,11 @@ interface LiquidityCase {
   fee: string;
   offpeg_fee_multiplier: string;
   totalSupply: string;
+  calcTokenAmountFee?: boolean;
   get_virtual_price: string;
   calc_token_amount: { amounts: string[]; isDeposit: boolean; result: string }[];
   calc_withdraw_one_coin: { burnAmount: string; i: number; result: string }[];
+  get_dy?: { i: number; j: number; dx: string; result: string }[];
   add_liquidity?: { amounts: string[]; minted: string; fees: string[]; totalSupplyAfter: string };
 }
 
@@ -40,6 +42,7 @@ function toParams(c: LiquidityCase): stableswapExact.StableLiquidityParams {
     fee: BigInt(c.fee),
     offpegFeeMultiplier: BigInt(c.offpeg_fee_multiplier),
     totalSupply: BigInt(c.totalSupply),
+    calcTokenAmountFee: c.calcTokenAmountFee,
   };
 }
 
@@ -61,6 +64,14 @@ describe("stableswapExact liquidity: on-chain views", () => {
         }
       });
 
+      if (c.get_dy) {
+        it("get_dy", () => {
+          for (const v of c.get_dy!) {
+            expect(stableswapExact.getDyVariant(params, v.i, v.j, BigInt(v.dx))).toBe(BigInt(v.result));
+          }
+        });
+      }
+
       it("calc_withdraw_one_coin", () => {
         for (const v of c.calc_withdraw_one_coin) {
           expect(
@@ -69,7 +80,7 @@ describe("stableswapExact liquidity: on-chain views", () => {
         }
       });
 
-      if (c.variant !== "legacy") {
+      if (c.variant !== "legacy" && c.calcTokenAmountFee !== false) {
         it("add_liquidity mints what calc_token_amount quotes", () => {
           for (const v of c.calc_token_amount.filter((x) => x.isDeposit)) {
             expect(stableswapExact.calcAddLiquidityExact(params, big(v.amounts)).lpAmount).toBe(

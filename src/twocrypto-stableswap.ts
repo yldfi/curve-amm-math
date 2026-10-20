@@ -61,6 +61,7 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 export const ZERO_FEE_POLICIES: readonly string[] = [
   "0x0436c0648afd66de23f86f23cb42884304743efa", // crvUSD/WBTC
   "0xe99ee179f1cc62d4a1d3e67dd5541ecb63aca396", // crvUSD/tBTC
+  "0x038f549d21b9c22a26ada4da2ebf7cfd1c3ca22d", // Yield Basis cbBTC
 ];
 
 /**
@@ -309,6 +310,7 @@ export function calcTokenAmount(
   } else {
     d_token = (params.totalSupply * D) / D0;
     d_token = deposit ? d_token - params.totalSupply : params.totalSupply - d_token;
+    if (d_token < 0n) fail("d_token underflow");
   }
 
   const f = calcTokenFee(params, amounts, xpNew, deposit, true);

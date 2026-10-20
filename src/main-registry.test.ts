@@ -10,6 +10,7 @@ interface MainCase {
   pool: string;
   name: string;
   variant: string;
+  calcTokenAmountFee?: boolean;
   decimals: number[];
   balances: string[];
   A: string;
@@ -82,6 +83,7 @@ describe("main-registry StableSwap pools", () => {
         offpegFeeMultiplier: c.offpeg_fee_multiplier ? BigInt(c.offpeg_fee_multiplier) : 0n,
         totalSupply: BigInt(c.totalSupply),
         getDySubtractOne: noSubtractOne ? false : undefined,
+        calcTokenAmountFee: c.calcTokenAmountFee,
       };
       let checked = 0;
       if (c.get_virtual_price) {

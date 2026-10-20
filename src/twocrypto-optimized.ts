@@ -291,9 +291,8 @@ export function getY(
 
   const sqrt_arg = delta1 ** 2n + ((4n * delta0 ** 2n) / b) * delta0;
   if (sqrt_arg <= 0n) {
-    const y = newtonYInner(_ANN, _gamma, _x, _D, i, lim);
-    checkYFrac(y, _D, lim);
-    return [y, 0n];
+    // The math contract returns `_newton_y` directly here: no y-fraction check.
+    return [newtonYInner(_ANN, _gamma, _x, _D, i, lim), 0n];
   }
   const sqrt_val = isqrt(sqrt_arg);
 

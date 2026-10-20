@@ -1324,6 +1324,49 @@ describe("getExactStableSwapParams", () => {
   });
 });
 
+describe("pinned-block param readers", () => {
+  const originalFetch = global.fetch;
+  const word = "0x" + "1".padStart(64, "0");
+  let tags: string[];
+
+  beforeEach(() => {
+    tags = [];
+    global.fetch = vi.fn().mockImplementation((_, options) => {
+      const body = JSON.parse(options.body);
+      const requests = Array.isArray(body) ? body : [body];
+      tags.push(...requests.map((r: { params: unknown[] }) => r.params[1] as string));
+      const results = requests.map((r: { id: number }) => ({ id: r.id, result: word }));
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(Array.isArray(body) ? results : { result: word + "1".padStart(64, "0") }),
+      });
+    });
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it("reads every view at the given blockTag", async () => {
+    await getStableSwapParams("http://localhost:8545", "0xpool", 2, {
+      blockTag: 26236847,
+      normalize: true,
+    });
+    await getCryptoSwapParams("http://localhost:8545", "0xpool", { blockTag: 26236847 });
+    await getTricryptoParams("http://localhost:8545", "0xpool", { blockTag: 26236847 });
+    await getTriCrvParams("http://localhost:8545", "0xpool", { blockTag: 26236847 });
+    await getExactStableSwapParams("http://localhost:8545", "0xpool", { blockTag: 26236847 });
+
+    expect(tags.length).toBeGreaterThan(30);
+    expect(new Set(tags)).toEqual(new Set(["0x" + (26236847).toString(16)]));
+  });
+
+  it("defaults to latest", async () => {
+    await getExactStableSwapParams("http://localhost:8545", "0xpool");
+    expect(new Set(tags)).toEqual(new Set(["latest"]));
+  });
+});
+
 describe("getTricryptoLegacyState", () => {
   const originalFetch = global.fetch;
 
