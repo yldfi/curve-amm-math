@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0](https://github.com/yldfi/curve-amm-math/compare/v1.5.2...v1.6.0) (2026-10-20)
+
+
+### Features
+
+* **tricrypto-legacy:** quote tricrypto2 and tricrypto v1 from a pinned state ([41869da](https://github.com/yldfi/curve-amm-math/commit/41869daa6a3de3537b0c29c1c21e42261f35bacf))
+* **tricrypto-legacy:** quote tricrypto2 and tricrypto v1 from a pinned state ([c4f4fa4](https://github.com/yldfi/curve-amm-math/commit/c4f4fa4ee5d70e94aef367c257e23ec76200ad5c)), closes [#38](https://github.com/yldfi/curve-amm-math/issues/38)
+
 ## [1.5.2](https://github.com/yldfi/curve-amm-math/compare/v1.5.1...v1.5.2) (2026-10-12)
 
 
