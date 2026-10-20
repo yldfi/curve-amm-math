@@ -100,6 +100,10 @@ export type { TwocryptoOptimizedParams } from "./twocrypto-optimized";
 export * as tricryptoNg from "./tricrypto-ng";
 export type { TricryptoNgParams } from "./tricrypto-ng";
 
+// tricrypto2 and tricrypto v1 (pre-NG USDT/WBTC/WETH pools), exact
+export * as tricryptoLegacy from "./tricrypto-legacy";
+export type { TricryptoLegacyState, TricryptoLegacyVariant } from "./tricrypto-legacy";
+
 // StableSwap metapools: underlying swaps and factory-zap liquidity, exact
 export * as metapool from "./metapool";
 export type { MetapoolParams, CryptoMetapoolParams } from "./metapool";
