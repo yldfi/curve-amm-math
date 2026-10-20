@@ -78,7 +78,8 @@ export const SELECTORS = {
   P_ORACLE_UP: "0x2eb858e7", // p_oracle_up(int256)
 } as const;
 
-interface RpcCall {
+/** One eth_call in a batch: target contract and ABI-encoded calldata. */
+export interface RpcCall {
   to: string;
   data: string;
 }
