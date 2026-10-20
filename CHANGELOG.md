@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0](https://github.com/yldfi/curve-amm-math/compare/v1.6.0...v1.7.0) (2026-10-20)
+
+
+### Features
+
+* **rpc:** read stableswap, crypto and tricrypto params at a blockTag ([cd7fe4f](https://github.com/yldfi/curve-amm-math/commit/cd7fe4fd06999aabd4566dee467f209e4acabf49)), closes [#41](https://github.com/yldfi/curve-amm-math/issues/41)
+
+
+### Bug Fixes
+
+* **cryptoswap:** model EUROC/3Crv's single-division newton_y ([2c1b417](https://github.com/yldfi/curve-amm-math/commit/2c1b417d25b13bacb108a4c2aebee06ffa774415)), closes [#41](https://github.com/yldfi/curve-amm-math/issues/41)
+* **metapool:** divide by coin 0's full rate in get_dy_underlying ([e7bbf32](https://github.com/yldfi/curve-amm-math/commit/e7bbf329fd7d1d9f32420e35d96bce0f225a20a8)), closes [#41](https://github.com/yldfi/curve-amm-math/issues/41)
+* **stableswap-exact:** map 2-coin factory v1 plain pools to plain without the calc_token_amount fee ([98e2f60](https://github.com/yldfi/curve-amm-math/commit/98e2f60bda424b8a6401ff55a94b631e1ac10f04)), closes [#41](https://github.com/yldfi/curve-amm-math/issues/41)
+* **stableswap-exact:** quote crvUSD factory v5.0.0 calc_token_amount without the imbalance fee ([fe4fe95](https://github.com/yldfi/curve-amm-math/commit/fe4fe953689ac0996f54a80f2af634db155c4a0a)), closes [#41](https://github.com/yldfi/curve-amm-math/issues/41)
+* **twocrypto-optimized:** skip the y-fraction check on get_y's newton_y fallback ([d6bca5c](https://github.com/yldfi/curve-amm-math/commit/d6bca5c7b9dda290f8c5e1c6f3cef68a15de84aa)), closes [#41](https://github.com/yldfi/curve-amm-math/issues/41)
+* **twocrypto-stableswap:** add the Yield Basis cbBTC zero-fee policy and revert on d_token underflow ([aed6018](https://github.com/yldfi/curve-amm-math/commit/aed60185a807ec4888c8d1c40bfd947d23583000)), closes [#41](https://github.com/yldfi/curve-amm-math/issues/41)
+
 ## [1.6.0](https://github.com/yldfi/curve-amm-math/compare/v1.5.2...v1.6.0) (2026-10-20)
 
 
