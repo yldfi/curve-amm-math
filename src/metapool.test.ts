@@ -91,6 +91,10 @@ interface MetaCase {
   base_cache_updated: string | null;
   stored_rates?: string[] | null;
   coin0_decimals: number;
+  /** Coin 0 rate when it is not 10^(36 - decimals) (RAI3CRV: redemption price) */
+  rate0?: string;
+  /** Base pool state at the case's own block (3pool) */
+  base_state?: { balances: string[]; A: string; fee: string; totalSupply: string };
   cta: { amounts: string[]; dep: boolean; r: string }[];
   cwo: { amt: string; i: number; r: string }[];
   get_dy: { i: number; j: number; dx: string; r: string }[];
@@ -105,7 +109,16 @@ interface MetaCase {
 describe("metapools: pool-level and underlying views", () => {
   for (const c of metaCases.cases as MetaCase[]) {
     describe(c.name, () => {
-      const base = BASES[c.base];
+      const base: stableswapExact.StableLiquidityParams = c.base_state
+        ? {
+            ...BASES[c.base],
+            balances: big(c.base_state.balances),
+            A: BigInt(c.base_state.A),
+            ampPrecise: BigInt(c.base_state.A),
+            fee: BigInt(c.base_state.fee),
+            totalSupply: BigInt(c.base_state.totalSupply),
+          }
+        : BASES[c.base];
       let baseVp = stableswapExact.getVirtualPriceExact(base);
       // old main-registry metapools cache the base virtual price for 10 minutes
       if (c.base_virtual_price && BigInt(c.base_cache_updated!) + 600n >= BigInt(c.blockTimestamp)) {
@@ -115,7 +128,9 @@ describe("metapools: pool-level and underlying views", () => {
       const meta: stableswapExact.StableLiquidityParams = {
         variant: ng ? "ng" : "legacy",
         balances: big(c.balances),
-        rates: ng ? big(c.stored_rates!) : [10n ** BigInt(36 - c.coin0_decimals), baseVp],
+        rates: ng
+          ? big(c.stored_rates!)
+          : [c.rate0 ? BigInt(c.rate0) : 10n ** BigInt(36 - c.coin0_decimals), baseVp],
         A: BigInt(c.A),
         ampPrecise: BigInt(c.A_precise ?? c.A),
         ampPrecision: c.A_precise ? 100n : 1n,

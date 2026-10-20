@@ -524,7 +524,9 @@ Pool-level metapool math is the `stableswapExact` liquidity API with
 `factory` v1 metapools) or `stored_rates()` (`"ng"` for stable-ng metapools).
 `baseVirtualPrice` is the base pool's live `get_virtual_price()`, except old
 `main` metapools while their 10-minute cache (`base_virtual_price()`,
-`base_cache_updated()`) is fresh. The `metapool` module adds the paths that
+`base_cache_updated()`) is fresh. RAI3CRV (`0x61878835…`) prices RAI at its
+redemption price: its `rates[0]` is `snappedRedemptionPrice() / 10^9`, read
+from the pool's `redemption_price_snap()` contract at the same block. The `metapool` module adds the paths that
 go through the base pool:
 
 | Function | Description |
