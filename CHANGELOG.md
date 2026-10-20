@@ -15,7 +15,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes
 
-* close the [#41](https://github.com/yldfi/curve-amm-math/issues/41) mainnet parity gaps (factory v1/crvUSD calc_token_amount, RAI3CRV, EUROC, twocrypto policies, blockTag readers) ([1a670d9](https://github.com/yldfi/curve-amm-math/commit/1a670d9aa958166883a55495df1a3646b129d553))
 * **cryptoswap:** model EUROC/3Crv's single-division newton_y ([2c1b417](https://github.com/yldfi/curve-amm-math/commit/2c1b417d25b13bacb108a4c2aebee06ffa774415)), closes [#41](https://github.com/yldfi/curve-amm-math/issues/41)
 * **metapool:** divide by coin 0's full rate in get_dy_underlying ([e7bbf32](https://github.com/yldfi/curve-amm-math/commit/e7bbf329fd7d1d9f32420e35d96bce0f225a20a8)), closes [#41](https://github.com/yldfi/curve-amm-math/issues/41)
 * **stableswap-exact:** map 2-coin factory v1 plain pools to plain without the calc_token_amount fee ([98e2f60](https://github.com/yldfi/curve-amm-math/commit/98e2f60bda424b8a6401ff55a94b631e1ac10f04)), closes [#41](https://github.com/yldfi/curve-amm-math/issues/41)
