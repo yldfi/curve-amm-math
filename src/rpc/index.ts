@@ -23,6 +23,8 @@ import type { StableSwapPoolParams } from "../stableswap";
 import type { CryptoSwapParams, TricryptoParams } from "../cryptoswap";
 import type { YieldBasisVirtualPoolRpcParams } from "../yieldbasis";
 import type { LlamaLendAmmParams } from "../llamalend";
+import type { TricryptoLegacyState, TricryptoLegacyVariant } from "../tricrypto-legacy";
+import { TRICRYPTO2_POOL_ADDRESS, TRICRYPTO_V1_POOL_ADDRESS } from "../tricrypto-legacy";
 import { A_PRECISION } from "../stableswap";
 import { computeRates } from "../stableswap-exact";
 import { TRICRV_DECIMALS, TRICRV_POOL_ADDRESS } from "../tricrv";
@@ -856,6 +858,123 @@ export async function getTricryptoParams(
     priceScales: [results[9] ?? 10n ** 18n, results[10] ?? 10n ** 18n],
     balances: [results[0] ?? 0n, results[1] ?? 0n, results[2] ?? 0n],
     precisions: options.precisions ?? [1n, 1n, 1n],
+  };
+}
+
+/**
+ * Options for fetching a legacy tricrypto state
+ */
+export interface TricryptoLegacyFetchOptions {
+  /** Block to read at (default "latest") */
+  blockTag?: string | number | bigint;
+  /** Timeout in milliseconds for each RPC request (default 30000) */
+  timeout?: number;
+  /**
+   * Pool variant. Default: by address for the two mainnet pools; for any
+   * other address, tricrypto v1 when the pool has `A_precise()`, otherwise
+   * tricrypto2.
+   */
+  variant?: TricryptoLegacyVariant;
+}
+
+const FUTURE_A_GAMMA_TIME = "0xf9ed9597"; // future_A_gamma_time()
+const TOKEN = "0xfc0c546a"; // token()
+
+/**
+ * Read a tricrypto2 or tricrypto v1 state for `tricryptoLegacy` at one block:
+ * balances, `price_scale(k)`, D, A/gamma (current value of any ramp), fees,
+ * `future_A_gamma_time`, precisions from the coins' decimals and the LP
+ * token's `totalSupply`. For tricrypto v1, `params.A` is `A_precise() * 100`.
+ *
+ * @throws Error if any required view fails or returns nothing
+ */
+export async function getTricryptoLegacyState(
+  rpcUrl: string,
+  poolAddress: string,
+  options: TricryptoLegacyFetchOptions = {}
+): Promise<TricryptoLegacyState> {
+  const batchOptions = { blockTag: options.blockTag, timeout: options.timeout };
+  const word = (raw: string | null): bigint | null =>
+    raw === null ? null : BigInt(raw.slice(0, 66));
+  const names = [
+    "balances(0)", "balances(1)", "balances(2)",
+    "price_scale(0)", "price_scale(1)",
+    "A()", "A_precise()", "gamma()", "D()",
+    "mid_fee()", "out_fee()", "fee_gamma()", "future_A_gamma_time()",
+    "token()", "coins(0)", "coins(1)", "coins(2)",
+  ];
+  const raw = await batchRpcRawCalls(
+    rpcUrl,
+    [
+      ...[0, 1, 2].map((k) => ({ to: poolAddress, data: buildBalancesCalldata(k) })),
+      ...[0, 1].map((k) => ({ to: poolAddress, data: buildPriceScaleCalldata(k) })),
+      { to: poolAddress, data: SELECTORS.A },
+      { to: poolAddress, data: SELECTORS.A_PRECISE },
+      { to: poolAddress, data: SELECTORS.GAMMA },
+      { to: poolAddress, data: SELECTORS.D },
+      { to: poolAddress, data: SELECTORS.MID_FEE },
+      { to: poolAddress, data: SELECTORS.OUT_FEE },
+      { to: poolAddress, data: SELECTORS.FEE_GAMMA },
+      { to: poolAddress, data: FUTURE_A_GAMMA_TIME },
+      { to: poolAddress, data: TOKEN },
+      ...[0, 1, 2].map((k) => ({ to: poolAddress, data: buildCoinsCalldata(k) })),
+    ],
+    batchOptions
+  );
+  const v = raw.map(word);
+  const required = (k: number): bigint => {
+    if (v[k] === null) {
+      throw new Error(`getTricryptoLegacyState: ${names[k]} failed for pool ${poolAddress}`);
+    }
+    return v[k]!;
+  };
+
+  // Known pools by address: a provider error on A_precise() must not flip v1 to tricrypto2
+  const pool = poolAddress.toLowerCase();
+  const variant =
+    options.variant ??
+    (pool === TRICRYPTO2_POOL_ADDRESS
+      ? "tricrypto2"
+      : pool === TRICRYPTO_V1_POOL_ADDRESS || v[6] !== null
+        ? "tricrypto-v1"
+        : "tricrypto2");
+  const A = variant === "tricrypto-v1" ? required(6) * 100n : required(5);
+  const token = bigintToAddress(required(13));
+  const coins = [14, 15, 16].map((k) => bigintToAddress(required(k)));
+
+  const meta = (
+    await batchRpcRawCalls(
+      rpcUrl,
+      [
+        { to: token, data: SELECTORS.TOTAL_SUPPLY },
+        ...coins.map((c) => ({ to: c, data: SELECTORS.DECIMALS })),
+      ],
+      batchOptions
+    )
+  ).map(word);
+  const metaNames = ["token totalSupply()", "coins(0) decimals()", "coins(1) decimals()", "coins(2) decimals()"];
+  meta.forEach((m, k) => {
+    if (m === null) {
+      throw new Error(`getTricryptoLegacyState: ${metaNames[k]} failed for pool ${poolAddress}`);
+    }
+  });
+  const precisions = computePrecisions(meta.slice(1).map(Number));
+
+  return {
+    variant,
+    params: {
+      A,
+      gamma: required(7),
+      D: required(8),
+      midFee: required(9),
+      outFee: required(10),
+      feeGamma: required(11),
+      priceScales: [required(3), required(4)],
+      balances: [required(0), required(1), required(2)],
+      precisions: precisions as [bigint, bigint, bigint],
+      futureAGammaTime: required(12),
+    },
+    totalSupply: meta[0]!,
   };
 }
 

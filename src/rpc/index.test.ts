@@ -38,7 +38,10 @@ import {
   getBlockNumber,
   getTriCrvParams,
   getLlamaLendAmmParams,
+  getTricryptoLegacyState,
 } from "./index";
+import * as tricryptoLegacy from "../tricrypto-legacy";
+import legacyCases from "../__fixtures__/legacy-tricrypto-cases.json";
 
 function encodeWord(value: bigint): string {
   return value.toString(16).padStart(64, "0");
@@ -1318,5 +1321,119 @@ describe("getExactStableSwapParams", () => {
     expect(params.fee).toBe(fee);
     expect(params.rates).toHaveLength(2);
     expect(params.balances).toHaveLength(2);
+  });
+});
+
+describe("getTricryptoLegacyState", () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  type Case = (typeof legacyCases.cases)[number];
+
+  // Answers eth_call from a fixture state, as the pool, LP token and coins would
+  function fakeChain(c: Case, seenBlockTags: string[], omit?: string) {
+    const pool = c.pool;
+    const word = (x: string | bigint) => "0x" + encodeWord(BigInt(x));
+    const answers = new Map<string, string>();
+    const at = (to: string, data: string, value: string | bigint) =>
+      answers.set(`${to.toLowerCase()}:${data}`, word(value));
+    [0, 1, 2].forEach((k) => at(pool, buildBalancesCalldata(k), c.balances[k]));
+    [0, 1].forEach((k) => at(pool, buildPriceScaleCalldata(k), c.price_scale[k]));
+    [0, 1, 2].forEach((k) => at(pool, buildCoinsCalldata(k), c.coins[k]));
+    at(pool, SELECTORS.A, c.A);
+    if (c.A_precise !== null) at(pool, SELECTORS.A_PRECISE, c.A_precise);
+    at(pool, SELECTORS.GAMMA, c.gamma);
+    at(pool, SELECTORS.D, c.D);
+    at(pool, SELECTORS.MID_FEE, c.mid_fee);
+    at(pool, SELECTORS.OUT_FEE, c.out_fee);
+    at(pool, SELECTORS.FEE_GAMMA, c.fee_gamma);
+    at(pool, "0xf9ed9597", c.future_A_gamma_time);
+    at(pool, "0xfc0c546a", c.token);
+    at(c.token, SELECTORS.TOTAL_SUPPLY, c.totalSupply);
+    c.coins.forEach((coin, k) => at(coin, SELECTORS.DECIMALS, BigInt(c.decimals[k])));
+    if (omit) answers.delete(`${pool}:${omit}`);
+
+    return vi.fn().mockImplementation((_url: string, init: { body: string }) => {
+      const batch = JSON.parse(init.body) as {
+        id: number;
+        params: [{ to: string; data: string }, string];
+      }[];
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve(
+            batch.map(({ id, params: [call, blockTag] }) => {
+              seenBlockTags.push(blockTag);
+              const result = answers.get(`${call.to.toLowerCase()}:${call.data}`);
+              return result
+                ? { jsonrpc: "2.0", id, result }
+                : { jsonrpc: "2.0", id, error: { code: -32000, message: "execution reverted" } };
+            })
+          ),
+      });
+    });
+  }
+
+  for (const c of legacyCases.cases.filter((x) => x.block === 23000000)) {
+    it(`${c.name}: reads the state the views were computed from`, async () => {
+      const seen: string[] = [];
+      global.fetch = fakeChain(c, seen);
+      const state = await getTricryptoLegacyState("http://localhost:8545", c.pool, {
+        blockTag: c.block,
+      });
+
+      expect(seen.every((t) => t === "0x" + c.block.toString(16))).toBe(true);
+      expect(state.variant).toBe(c.name);
+      expect(state.totalSupply).toBe(BigInt(c.totalSupply));
+      expect(state.params).toEqual({
+        A: c.A_precise !== null ? BigInt(c.A_precise) * 100n : BigInt(c.A),
+        gamma: BigInt(c.gamma),
+        D: BigInt(c.D),
+        midFee: BigInt(c.mid_fee),
+        outFee: BigInt(c.out_fee),
+        feeGamma: BigInt(c.fee_gamma),
+        priceScales: c.price_scale.map(BigInt),
+        balances: c.balances.map(BigInt),
+        precisions: c.precisions.map(BigInt),
+        futureAGammaTime: BigInt(c.future_A_gamma_time),
+      });
+      for (const v of c.get_dy) {
+        expect(tricryptoLegacy.getDy(state, v.i, v.j, BigInt(v.dx))).toBe(BigInt(v.result!));
+      }
+      for (const v of c.calc_withdraw_one_coin) {
+        expect(tricryptoLegacy.calcWithdrawOneCoin(state, BigInt(v.tokenAmount), v.i)).toBe(
+          BigInt(v.result!)
+        );
+      }
+    });
+  }
+
+  it("throws when a required view fails instead of assuming a value", async () => {
+    const c = legacyCases.cases.find((x) => x.name === "tricrypto2")!;
+    global.fetch = fakeChain(c, [], SELECTORS.D);
+    await expect(getTricryptoLegacyState("http://localhost:8545", c.pool)).rejects.toThrow(
+      "getTricryptoLegacyState: D() failed"
+    );
+  });
+
+  it("does not mistake tricrypto v1 for tricrypto2 when A_precise() errors", async () => {
+    const c = legacyCases.cases.find((x) => x.name === "tricrypto-v1" && x.block === 23000000)!;
+    global.fetch = fakeChain(c, [], SELECTORS.A_PRECISE);
+    await expect(getTricryptoLegacyState("http://localhost:8545", c.pool)).rejects.toThrow(
+      "getTricryptoLegacyState: A_precise() failed"
+    );
+  });
+
+  it("honours an explicit variant", async () => {
+    const c = legacyCases.cases.find((x) => x.name === "tricrypto-v1" && x.block === 23000000)!;
+    global.fetch = fakeChain(c, []);
+    const state = await getTricryptoLegacyState("http://localhost:8545", c.pool, {
+      variant: "tricrypto2",
+    });
+    expect(state.variant).toBe("tricrypto2");
+    expect(state.params.A).toBe(BigInt(c.A));
   });
 });

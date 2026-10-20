@@ -22,7 +22,10 @@ import {
   getYieldBasisVirtualPoolParams,
   getBlockNumber,
   getLlamaLendAmmParams,
+  getTricryptoLegacyState,
 } from "./index";
+import * as tricryptoLegacy from "../tricrypto-legacy";
+import legacyCases from "../__fixtures__/legacy-tricrypto-cases.json";
 import * as stableswapExact from "../stableswap-exact";
 
 // Set longer timeout for RPC tests (30 seconds)
@@ -542,6 +545,26 @@ describeIf("RPC Integration Tests", () => {
     10n ** BigInt(18 - TRICRYPTO_DECIMALS[1]), // WBTC: 10^10
     10n ** BigInt(18 - TRICRYPTO_DECIMALS[2]), // WETH: 1
   ];
+
+  // Reads at block 23000000, so RPC_URL must be an archive endpoint
+  describe("legacy tricrypto at a pinned block (archive RPC)", () => {
+    for (const c of legacyCases.cases.filter((x) => x.block === 23000000)) {
+      it(`${c.name} @${c.block}: reader state reproduces the fixture views`, async () => {
+        const state = await getTricryptoLegacyState(RPC_URL!, c.pool, { blockTag: c.block });
+        expect(state.variant).toBe(c.name);
+        expect(state.totalSupply).toBe(BigInt(c.totalSupply));
+        expect(state.params.D).toBe(BigInt(c.D));
+        for (const v of c.get_dy) {
+          expect(tricryptoLegacy.getDy(state, v.i, v.j, BigInt(v.dx))).toBe(BigInt(v.result!));
+        }
+        for (const v of c.calc_withdraw_one_coin) {
+          expect(tricryptoLegacy.calcWithdrawOneCoin(state, BigInt(v.tokenAmount), v.i)).toBe(
+            BigInt(v.result!)
+          );
+        }
+      });
+    }
+  });
 
   describe("CryptoSwap - Tricrypto", () => {
     it("should fetch tricrypto params successfully", async () => {

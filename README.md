@@ -384,7 +384,8 @@ from the balances, and so does this module.
 The retired tricrypto v1 (0x80466c64…) is covered by the 3-coin functions:
 its math uses A_MULTIPLIER = 100 with `A_precise()`, so pass
 `A = A_precise() * 100n`, and its `calc_withdraw_one_coin` starts from the
-stored D (use `calcRemoveLiquidityOneCoin3`).
+stored D (use `calcRemoveLiquidityOneCoin3`). `tricryptoLegacy` below handles
+both differences for you.
 
 `add_liquidity` and `remove_liquidity_one_coin` may also claim admin fees
 (`mint_relative` to the fee receiver) and move `price_scale` in `tweak_price`.
@@ -457,6 +458,38 @@ ported in `lendingZap.calcWithdrawOneCoin(params, lpAmount, i)` (rates are the
 tokens' raw `exchangeRateStored()` / `getPricePerFullShare()`) and
 `lendingZap.removeLiquidityOneCoinWrapped` (the wrapped amount the zap
 withdraws, using accrued `exchangeRateCurrent()` rates).
+
+### tricrypto2 and tricrypto v1 (`tricryptoLegacy`)
+
+The two pre-NG USDT/WBTC/WETH pools on Ethereum mainnet: tricrypto2
+(`0xD51a44d3…`, LP crv3crypto) and tricrypto v1 (`0x80466c64…`, LP
+crvTricrypto). Read a state at a pinned block with `rpc.getTricryptoLegacyState`
+and quote from it; results match `get_dy` and `calc_withdraw_one_coin` to the
+wei (fixtures at five blocks from 2021 to 2026, every pair, 1 coin up to 50%
+of the pool's balance or supply).
+
+```typescript
+import { tricryptoLegacy } from '@yldfi/curve-amm-math';
+import { getTricryptoLegacyState } from '@yldfi/curve-amm-math/rpc';
+
+const state = await getTricryptoLegacyState(rpcUrl, tricryptoLegacy.TRICRYPTO2_POOL_ADDRESS, {
+  blockTag: 23000000,
+});
+const wbtcOut = tricryptoLegacy.getDy(state, 0, 1, 10_000n * 10n ** 6n); // USDT -> WBTC
+const usdtIn = tricryptoLegacy.getDx(state, 0, 1, 10n ** 8n); // USDT for 1 WBTC
+const usdtOut = tricryptoLegacy.calcWithdrawOneCoin(state, 10n ** 18n, 0);
+```
+
+| Function | Description |
+|----------|-------------|
+| `getDy(state, i, j, dx)` | `get_dy` |
+| `getDx(state, i, j, dy)` | Smallest input whose `get_dy` is at least `dy` (neither pool has `get_dx`) |
+| `calcWithdrawOneCoin(state, tokenAmount, i)` | `calc_withdraw_one_coin` |
+| `getVirtualPrice(state)` | `get_virtual_price` |
+
+The state is `{ variant, params, totalSupply }`, where `params` is a
+`TricryptoParams` with `A` already on A_MULTIPLIER = 10000 (`A_precise() * 100`
+for v1) and A/gamma at their current values if a ramp is in progress.
 
 ### Tricrypto-NG and Twocrypto-NG
 
@@ -601,6 +634,7 @@ with `floorRatio`.
 | `getBlockNumber(rpcUrl)` | Fetch a block number for pinned exact RPC reads |
 | `getCryptoSwapParams(rpcUrl, pool, precisions?)` | Fetch CryptoSwap 2-coin params |
 | `getTricryptoParams(rpcUrl, pool, precisions?)` | Fetch Tricrypto 3-coin params |
+| `getTricryptoLegacyState(rpcUrl, pool, options?)` | Fetch a tricrypto2 / tricrypto v1 state (`blockTag`, precisions, totalSupply) |
 | `getOnChainDy(rpcUrl, pool, i, j, dx, factory?)` | On-chain get_dy for verification |
 | `getStoredRates(rpcUrl, pool)` | Fetch dynamic rates for oracle/ERC4626 tokens |
 | `getNCoins(rpcUrl, pool)` | Get number of coins in pool |
@@ -649,6 +683,7 @@ console.assert(diff <= tolerance, 'Off-chain calculation exceeds tolerance');
 | `factory-stable-ng` | `stableswapExact`, `variant: "ng"` | |
 | Metapools (`main`, `factory`, stable-ng) | `stableswapExact` + `metapool` | rate 1 = base virtual price |
 | `crypto`, `factory-crypto` (CurveCryptoSwap2, tricrypto2) | `cryptoswap` | crypto metapools: `metapool.crypto*` |
+| tricrypto2, tricrypto v1 | `tricryptoLegacy` | read with `getTricryptoLegacyState` |
 | `factory-tricrypto` (Tricrypto-NG v2.0.x) | `tricryptoNg` | |
 | `factory-twocrypto`, standard math (v2.0.0 / v2.1.x) | `twocryptoOptimized` | |
 | `factory-twocrypto`, StableswapMath (v2.1.0d / v3.0.0) | `twocryptoStableswap` | pass `policy` |
