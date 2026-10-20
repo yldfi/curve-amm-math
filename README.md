@@ -415,7 +415,7 @@ Exact (to the wei) ports of each StableSwap family's liquidity functions.
 | `variant` | Pools (Curve API registry / implementation) | `calc_token_amount` |
 |-----------|-------|---------------------|
 | `"legacy"` | `main` registry plain pools (3pool, ETH/stETH, FRAXBP); `factory` v1 plain pools (`plain2basic`, `plain2balances`, `plain2basicema`, `plain2optimized`, `plain3balances`) | no imbalance fee |
-| `"plain"` | `factory-crvusd` pools (crvUSD/USDT, …) | static imbalance fee |
+| `"plain"` | `factory-crvusd` pools (crvUSD/USDT, …) | static imbalance fee; none for `version()` v5.0.0 pools (pass `calcTokenAmountFee: false`) |
 | `"ng"` | `factory-stable-ng` (`plainstableng`, `plainstableng-old`) | dynamic fee (`offpeg_fee_multiplier`) |
 | `"aave"` | `main` aave and saave pools (aTokens) | no imbalance fee; dynamic fee on withdrawals, deposits and swaps |
 
@@ -679,7 +679,7 @@ console.assert(diff <= tolerance, 'Off-chain calculation exceeds tolerance');
 | `main` plain pools (3pool, stETH, FRAXBP, …), `factory` v1 plain | `stableswapExact`, `variant: "legacy"` | 3pool: `ampPrecision: 1n` |
 | `main` aave / saave | `stableswapExact`, `variant: "aave"` | |
 | `main` lending (compound, usdt, y, busd, PAX, Iron Bank) | `stableswapExact` + `compoundRate` / `yearnRate`; `lendingZap` | |
-| `factory-crvusd` | `stableswapExact`, `variant: "plain"` | |
+| `factory-crvusd` | `stableswapExact`, `variant: "plain"` | `version()` v5.0.0 (crvUSD-sDAI, -sFRAX, -USDM, -STBT, …): `calcTokenAmountFee: false`; 2Prices pools: `rates` from `stored_rates()` |
 | `factory-stable-ng` | `stableswapExact`, `variant: "ng"` | |
 | Metapools (`main`, `factory`, stable-ng) | `stableswapExact` + `metapool` | rate 1 = base virtual price |
 | `crypto`, `factory-crypto` (CurveCryptoSwap2, tricrypto2) | `cryptoswap` | crypto metapools: `metapool.crypto*` |

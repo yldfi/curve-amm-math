@@ -640,6 +640,14 @@ export interface StableLiquidityParams extends ExactPoolParams {
    * ETH/rETH and ETH/aETH pools do not: pass false for them.
    */
   getDySubtractOne?: boolean;
+  /**
+   * Whether the `calc_token_amount` view deducts the imbalance fee. Defaults
+   * to true for `"plain"` / `"ng"` and false for `"legacy"` / `"aave"`. Pass
+   * false for `"plain"` crvUSD factory pools at `version()` v5.0.0
+   * (CurveStableSwap2Balances / CurveStableSwap2Prices), whose view omits the
+   * fee that their `add_liquidity` charges.
+   */
+  calcTokenAmountFee?: boolean;
 }
 
 /** Result of an exact add_liquidity / remove_liquidity_imbalance */
@@ -830,7 +838,8 @@ function validateLiquidityAmounts(name: string, params: StableLiquidityParams, a
  * - `"legacy"`: no fee (`(D1 - D0) * supply / D0`). Legacy `add_liquidity`
  *   does charge the imbalance fee: use {@link calcAddLiquidityExact} for the
  *   amount actually minted.
- * - `"plain"`: static imbalance fee, as `add_liquidity`.
+ * - `"plain"`: static imbalance fee, as `add_liquidity` (crvUSD factory
+ *   v5.0.0 pools omit it: pass `calcTokenAmountFee: false`).
  * - `"ng"`: dynamic imbalance fee (StableSwap-NG views contract), computed
  *   with `A * A_PRECISION` like the views (`ampPrecise` is ignored, so while A
  *   ramps the quote differs from the mint in {@link calcAddLiquidityExact}).
@@ -864,7 +873,7 @@ export function calcTokenAmountExact(
   const D1 = getDVariant(getXp(newBalances, rates), amp, variant, ampPrecision);
 
   let D2 = D1;
-  if (variant === "plain" || variant === "ng") {
+  if (params.calcTokenAmountFee ?? (variant === "plain" || variant === "ng")) {
     if (totalSupply === 0n) return D1;
     const fees = imbalanceFees(params, oldBalances, newBalances, D0, D1);
     D2 = getDVariant(
