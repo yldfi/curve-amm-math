@@ -6,7 +6,7 @@
 //
 //   node scripts/parity/sweep.mjs --chain ethereum --rpc <url> [--block N]
 //     [--random 8] [--seed 1] [--pools 0xabc,0xdef] [--min-tvl 0]
-//     [--concurrency 4] [--out .parity/<chain>-<block>.json]
+//     [--concurrency 4] [--batch 100] [--out .parity/<chain>-<block>.json]
 //
 // Network only; never part of `pnpm test`.
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -30,6 +30,7 @@ if (!rpcUrl) throw new Error("--rpc <url> (or RPC_URL) is required");
 const nRandom = Number(args.random ?? 8);
 const concurrency = Number(args.concurrency ?? 4);
 const minTvl = Number(args["min-tvl"] ?? 0);
+const batchSize = Number(args.batch ?? 100);
 const LADDER = [1e-4, 1e-3, 1e-2, 5e-2];
 
 // --- seeded randomness --------------------------------------------------------
@@ -78,8 +79,8 @@ const REVERT = /revert|invalid opcode|out of gas|stack underflow|bad instruction
 async function ethCalls(list, block) {
   const tag = "0x" + block.toString(16);
   const out = [];
-  for (let k = 0; k < list.length; k += 100) {
-    const part = list.slice(k, k + 100);
+  for (let k = 0; k < list.length; k += batchSize) {
+    const part = list.slice(k, k + batchSize);
     const body = part.map((c, id) => ({ jsonrpc: "2.0", id, method: "eth_call", params: [c, tag] }));
     for (let attempt = 0; ; attempt++) {
       try {
@@ -114,14 +115,14 @@ async function sweepPool(meta, block, seed) {
   let state;
   try {
     const lpToken = meta.lpTokenAddress && meta.lpTokenAddress.toLowerCase() !== meta.address.toLowerCase() ? meta.lpTokenAddress : undefined;
-    const descriptor = await rpc.detectPool(rpcUrl, meta.address, { blockTag: block, lpToken });
+    const descriptor = await rpc.detectPool(rpcUrl, meta.address, { blockTag: block, lpToken, batchSize });
     out.descriptor = descriptor;
     if (descriptor.family === "unsupported") {
       out.status = "unsupported";
       out.reason = descriptor.reason;
       return out;
     }
-    state = await rpc.readPoolState(rpcUrl, meta.address, { blockTag: block, descriptor });
+    state = await rpc.readPoolState(rpcUrl, meta.address, { blockTag: block, descriptor, batchSize });
   } catch (e) {
     out.status = "read-error";
     out.reason = e.message;

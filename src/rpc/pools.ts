@@ -101,6 +101,8 @@ export interface PoolReadOptions {
   blockTag?: BatchRpcOptions["blockTag"];
   /** Timeout in milliseconds for each RPC request (default 30000) */
   timeout?: number;
+  /** eth_calls per JSON-RPC batch (default 100; some providers accept fewer) */
+  batchSize?: number;
   /**
    * LP token, for StableSwap pools that are not their own LP token and have
    * no `lp_token()` / `token()` view (3pool, compound, …)
@@ -214,6 +216,7 @@ interface Ctx {
   blockNumber: bigint;
   blockTimestamp: bigint;
   timeout: number;
+  batchSize: number;
 }
 
 async function rpcRequestRaw(rpcUrl: string, body: unknown, timeout: number): Promise<unknown> {
@@ -269,11 +272,11 @@ async function context(rpcUrl: string, options: PoolReadOptions): Promise<Ctx> {
     blockNumber: BigInt(block.number),
     blockTimestamp: BigInt(block.timestamp),
     timeout,
+    batchSize: options.batchSize ?? 100,
   };
 }
 
 const REVERT = /revert|invalid opcode|out of gas|stack underflow|bad instruction|vm exception/i;
-const CHUNK = 100;
 
 /**
  * eth_call each [to, data] at the context block: null when the call reverts
@@ -283,7 +286,7 @@ const CHUNK = 100;
  */
 async function calls(ctx: Ctx, list: RpcCall[]): Promise<(string | null)[]> {
   const out: (string | null)[] = [];
-  for (let k = 0; k < list.length; k += CHUNK) out.push(...(await chunk(ctx, list.slice(k, k + CHUNK))));
+  for (let k = 0; k < list.length; k += ctx.batchSize) out.push(...(await chunk(ctx, list.slice(k, k + ctx.batchSize))));
   return out;
 }
 
