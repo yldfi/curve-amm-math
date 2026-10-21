@@ -287,6 +287,69 @@ cannot place, such as a Twocrypto version or MATH no module ports, come back as
 `unsupported` with a reason; a dynamic Twocrypto `POLICY` reads fine but its
 quotes throw until you pass `policyFee`.
 
+### Your Own RPC Client (`CurveRpc`)
+
+Every `rpc` helper takes either an RPC URL or a `CurveRpc` transport as its
+first argument. With a transport, the helpers make no requests of their own:
+every read goes through your client, so its batching, endpoint routing, block
+pinning, request budget, retries and cancellation apply.
+
+```typescript
+import { createPublicClient, http } from 'viem';
+import { mainnet } from 'viem/chains';
+import { detectPool, readPoolState, eip1193Rpc } from '@yldfi/curve-amm-math/rpc';
+
+// viem: a PublicClient is an EIP-1193 provider (batch: true batches the eth_calls)
+const client = createPublicClient({ chain: mainnet, transport: http(url, { batch: true }) });
+const rpc = eip1193Rpc(client);
+// or any EIP-1193 provider: eip1193Rpc(window.ethereum)
+
+const controller = new AbortController();
+const descriptor = await detectPool(rpc, poolAddress, { blockTag, signal: controller.signal });
+const state = await readPoolState(rpc, poolAddress, { blockTag, descriptor, signal: controller.signal });
+```
+
+`eip1193Rpc` reads an eth_call error as a revert (`null`) only when it carries a
+JSON-RPC code and is code 3 or a revert message; `isRevertError` exposes that
+check. Any other error rejects. The library is not tied to viem: `eip1193Rpc`
+only needs an object with an EIP-1193 `request` method.
+
+To control batching yourself, implement the interface directly:
+
+```typescript
+import type { CurveRpc } from '@yldfi/curve-amm-math/rpc';
+import { isRevertError } from '@yldfi/curve-amm-math/rpc';
+
+const rpc: CurveRpc = {
+  // One entry per call, in order: hex return data, or null when the call reverted.
+  // Throw on anything else (transport error, rate limit, missing state, abort).
+  async call(calls, { blockTag, signal }) {
+    const results = await myClient.batch(
+      calls.map((c) => ({ method: 'eth_call', params: [c, blockTag] })),
+      { signal }
+    );
+    return results.map((r) => {
+      if (!r.error) return r.result === '0x' ? null : r.result;
+      if (isRevertError(r.error)) return null;
+      throw new Error(r.error.message);
+    });
+  },
+  // eth_getBlockByNumber, eth_getCode, eth_blockNumber: the result, or throw
+  request: (method, params, { signal }) => myClient.request(method, params, { signal }),
+};
+```
+
+The contract that matters: return `null` only for a reverted call. The
+detector reads `null` as "this pool has no such view", so a transport failure
+returned as `null` could misdetect a pool; thrown, it rejects `detectPool` and
+`readPoolState` like a failed URL read. `blockTag` arrives already resolved
+(`detectPool` and `readPoolState` resolve it to one block number first) and is
+passed on every call. `signal` is the caller's `AbortSignal`, passed to every
+request; the helpers also stop between requests once it fires. With an RPC
+URL, `signal` aborts the in-flight `fetch` and stops retries. Timeouts, retries
+and batch splitting belong to the transport: `timeout` applies only to RPC
+URLs, while `batchSize` still caps the calls per `call`.
+
 ### RPC Utilities (optional)
 
 ```typescript
@@ -669,25 +732,33 @@ with `floorRatio`.
 
 ### RPC Utilities
 
+`rpc` is an RPC URL or a `CurveRpc` transport (see
+[Your Own RPC Client](#your-own-rpc-client-curverpc)). `batchRpcCalls`,
+`batchRpcRawCalls`, `detectPool`, `readPoolState`, `getTricryptoLegacyState`,
+`getBlockNumber`, `getStoredRates`, `getNCoins` and `getExactStableSwapParams`
+also take an abort `signal` in their options.
+
 | Function | Description |
 |----------|-------------|
-| `getStableSwapParams(rpcUrl, pool, nCoins?, options?)` | Fetch StableSwap pool params (`blockTag`) |
-| `getExactStableSwapParams(rpcUrl, pool, options?)` | Fetch exact precision params with stored_rates() (`blockTag`) |
-| `getTriCrvParams(rpcUrl, pool?, options?)` | Fetch exact classic 3pool / triCRV params (`blockTag`) |
-| `getLlamaLendAmmParams(rpcUrl, amm, options?)` | Fetch LLAMMA params and band balances |
-| `getBlockNumber(rpcUrl)` | Fetch a block number for pinned exact RPC reads |
-| `getCryptoSwapParams(rpcUrl, pool, options?)` | Fetch CryptoSwap 2-coin params (`precisions`, `blockTag`) |
-| `getTricryptoParams(rpcUrl, pool, options?)` | Fetch Tricrypto 3-coin params (`precisions`, `blockTag`) |
-| `getTricryptoLegacyState(rpcUrl, pool, options?)` | Fetch a tricrypto2 / tricrypto v1 state (`blockTag`, precisions, totalSupply) |
-| `detectPool(rpcUrl, pool, options?)` | Which module and flags quote the pool (`blockTag`, `lpToken`) |
-| `readPoolState(rpcUrl, pool, options?)` | The pool's state at one block, for the `pools` functions |
-| `getOnChainDy(rpcUrl, pool, i, j, dx, factory?)` | On-chain get_dy for verification |
-| `getStoredRates(rpcUrl, pool, options?)` | Fetch dynamic rates for oracle/ERC4626 tokens |
-| `getNCoins(rpcUrl, pool, options?)` | Get number of coins in pool |
-| `getPoolCoins(rpcUrl, pool, nCoins?)` | Get token addresses |
-| `getTokenDecimals(rpcUrl, tokens)` | Get decimals for tokens |
-| `previewRedeem(rpcUrl, vault, shares)` | ERC4626 preview redeem |
-| `batchRpcCalls(rpcUrl, calls)` | Batched eth_call requests |
+| `getStableSwapParams(rpc, pool, nCoins?, options?)` | Fetch StableSwap pool params (`blockTag`) |
+| `getExactStableSwapParams(rpc, pool, options?)` | Fetch exact precision params with stored_rates() (`blockTag`) |
+| `getTriCrvParams(rpc, pool?, options?)` | Fetch exact classic 3pool / triCRV params (`blockTag`) |
+| `getLlamaLendAmmParams(rpc, amm, options?)` | Fetch LLAMMA params and band balances |
+| `getBlockNumber(rpc)` | Fetch a block number for pinned exact RPC reads |
+| `getCryptoSwapParams(rpc, pool, options?)` | Fetch CryptoSwap 2-coin params (`precisions`, `blockTag`) |
+| `getTricryptoParams(rpc, pool, options?)` | Fetch Tricrypto 3-coin params (`precisions`, `blockTag`) |
+| `getTricryptoLegacyState(rpc, pool, options?)` | Fetch a tricrypto2 / tricrypto v1 state (`blockTag`, precisions, totalSupply) |
+| `detectPool(rpc, pool, options?)` | Which module and flags quote the pool (`blockTag`, `lpToken`) |
+| `readPoolState(rpc, pool, options?)` | The pool's state at one block, for the `pools` functions |
+| `getOnChainDy(rpc, pool, i, j, dx, factory?)` | On-chain get_dy for verification |
+| `getStoredRates(rpc, pool, options?)` | Fetch dynamic rates for oracle/ERC4626 tokens |
+| `getNCoins(rpc, pool, options?)` | Get number of coins in pool |
+| `getPoolCoins(rpc, pool, nCoins?)` | Get token addresses |
+| `getTokenDecimals(rpc, tokens)` | Get decimals for tokens |
+| `previewRedeem(rpc, vault, shares)` | ERC4626 preview redeem |
+| `batchRpcCalls(rpc, calls)` | Batched eth_call requests |
+| `eip1193Rpc(provider)` | Adapt an EIP-1193 provider or viem client to a `CurveRpc` |
+| `isRevertError(error)` | Whether an eth_call error is a revert (code 3 or a revert message) rather than a failure |
 
 ## Testing Accuracy
 

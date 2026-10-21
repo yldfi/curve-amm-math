@@ -2,7 +2,8 @@
  * Curve RPC Utilities
  *
  * Optional helpers for fetching pool parameters via JSON-RPC.
- * These require a fetch-compatible environment and RPC endpoint.
+ * Pass an RPC URL (needs a fetch-compatible environment) or a `CurveRpc`
+ * transport that routes the reads through your own client.
  *
  * @example
  * ```typescript
@@ -28,6 +29,17 @@ import { TRICRYPTO2_POOL_ADDRESS, TRICRYPTO_V1_POOL_ADDRESS } from "../tricrypto
 import { A_PRECISION } from "../stableswap";
 import { computeRates } from "../stableswap-exact";
 import { TRICRV_DECIMALS, TRICRV_POOL_ADDRESS } from "../tricrv";
+import type { RpcTarget } from "./transport";
+import { throwIfAborted } from "./transport";
+
+export type {
+  CurveRpc,
+  CurveRpcCallOptions,
+  CurveRpcRequestOptions,
+  Eip1193Provider,
+  RpcTarget,
+} from "./transport";
+export { eip1193Rpc, isRevertError } from "./transport";
 
 // Function selectors (4-byte function signatures)
 export const SELECTORS = {
@@ -130,6 +142,11 @@ export interface BatchRpcOptions {
    * as "latest", "safe", or "finalized". Default: "latest".
    */
   blockTag?: string | number | bigint;
+  /**
+   * Aborts the request. An RPC URL request rejects with the signal's reason;
+   * a {@link CurveRpc} transport receives the signal.
+   */
+  signal?: AbortSignal;
 }
 
 function encodeBlockTag(blockTag?: string | number | bigint): string {
@@ -146,10 +163,14 @@ function encodeBlockTag(blockTag?: string | number | bigint): string {
 async function fetchJsonRpc(
   rpcUrl: string,
   body: unknown,
-  timeout: number
+  timeout: number,
+  signal?: AbortSignal
 ): Promise<unknown> {
+  throwIfAborted(signal);
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
+  const onAbort = () => controller.abort();
+  signal?.addEventListener("abort", onAbort);
 
   let response: Response;
   try {
@@ -161,6 +182,7 @@ async function fetchJsonRpc(
     });
   } catch (error) {
     clearTimeout(timeoutId);
+    throwIfAborted(signal);
     if (error instanceof Error && error.name === "AbortError") {
       // Error `cause` needs ES2022 lib; this package targets ES2020.
       // eslint-disable-next-line preserve-caught-error
@@ -169,6 +191,7 @@ async function fetchJsonRpc(
     throw error;
   } finally {
     clearTimeout(timeoutId);
+    signal?.removeEventListener("abort", onAbort);
   }
 
   if (!response.ok) {
@@ -199,7 +222,8 @@ async function singleRpcRawCall(
       method: "eth_call",
       params: [{ to: call.to, data: call.data }, encodeBlockTag(options.blockTag)],
     },
-    timeout
+    timeout,
+    options.signal
   );
 
   const result = json as RpcSingleResult;
@@ -216,21 +240,45 @@ async function singleRpcRawCall(
   return null;
 }
 
+/** eth_call through a caller's transport: null for reverts, which `strict` turns into errors */
+async function transportRawCalls(
+  rpc: Exclude<RpcTarget, string>,
+  calls: RpcCall[],
+  options: BatchRpcOptions
+): Promise<(string | null)[]> {
+  throwIfAborted(options.signal);
+  const results = await rpc.call(calls, {
+    blockTag: encodeBlockTag(options.blockTag),
+    signal: options.signal,
+  });
+  if (results.length !== calls.length) {
+    throw new Error(`RPC transport returned ${results.length} results for ${calls.length} calls`);
+  }
+  return results.map((result, idx) => {
+    if (result && result !== "0x") return result;
+    if (options.strict) {
+      throw new Error(`RPC call ${idx} reverted or returned empty result (to: ${calls[idx].to})`);
+    }
+    return null;
+  });
+}
+
 /**
  * Execute multiple eth_call requests and return raw ABI-encoded results.
  *
- * @param rpcUrl - JSON-RPC endpoint URL
+ * @param rpc - JSON-RPC endpoint URL, or a {@link CurveRpc} transport
  * @param calls - Array of { to, data } call objects
  * @param options - Optional settings (strict mode, etc.)
  * @returns Array of raw hex results (null if call failed and not in strict mode)
  * @throws Error if strict mode is enabled and any call fails
  */
 export async function batchRpcRawCalls(
-  rpcUrl: string,
+  rpc: RpcTarget,
   calls: RpcCall[],
   options: BatchRpcOptions = {}
 ): Promise<(string | null)[]> {
   if (calls.length === 0) return [];
+  if (typeof rpc !== "string") return transportRawCalls(rpc, calls, options);
 
   const batch = calls.map((call, id) => ({
     jsonrpc: "2.0",
@@ -240,13 +288,13 @@ export async function batchRpcRawCalls(
   }));
 
   const timeout = options.timeout ?? 30000;
-  const json = await fetchJsonRpc(rpcUrl, batch, timeout);
+  const json = await fetchJsonRpc(rpc, batch, timeout, options.signal);
 
   // Some public RPCs do not support JSON-RPC batch requests. Fall back to
   // individual eth_call requests so optional RPC helpers still work there.
   if (!Array.isArray(json)) {
     return Promise.all(
-      calls.map((call, idx) => singleRpcRawCall(rpcUrl, call, idx, options, timeout))
+      calls.map((call, idx) => singleRpcRawCall(rpc, call, idx, options, timeout))
     );
   }
 
@@ -272,18 +320,18 @@ export async function batchRpcRawCalls(
  * Execute multiple eth_call requests in a single HTTP request
  * Reduces latency by batching RPC calls
  *
- * @param rpcUrl - JSON-RPC endpoint URL
+ * @param rpc - JSON-RPC endpoint URL, or a {@link CurveRpc} transport
  * @param calls - Array of { to, data } call objects
  * @param options - Optional settings (strict mode, etc.)
  * @returns Array of bigint results (null if call failed and not in strict mode)
  * @throws Error if strict mode is enabled and any call fails
  */
 export async function batchRpcCalls(
-  rpcUrl: string,
+  rpc: RpcTarget,
   calls: RpcCall[],
   options: BatchRpcOptions = {}
 ): Promise<(bigint | null)[]> {
-  const rawResults = await batchRpcRawCalls(rpcUrl, calls, options);
+  const rawResults = await batchRpcRawCalls(rpc, calls, options);
 
   const parsed = rawResults.map((result, idx) => {
     if (result && result !== "0x" && result !== "0x0") {
@@ -302,19 +350,28 @@ export async function batchRpcCalls(
  * Fetch the current block number from an RPC endpoint.
  */
 export async function getBlockNumber(
-  rpcUrl: string,
-  options: Pick<BatchRpcOptions, "timeout"> = {}
+  rpc: RpcTarget,
+  options: Pick<BatchRpcOptions, "timeout" | "signal"> = {}
 ): Promise<bigint> {
+  if (typeof rpc !== "string") {
+    throwIfAborted(options.signal);
+    const result = await rpc.request("eth_blockNumber", [], { signal: options.signal });
+    if (typeof result !== "string" || result === "0x") {
+      throw new Error("RPC block number request returned empty result");
+    }
+    return BigInt(result);
+  }
   const timeout = options.timeout ?? 30000;
   const json = await fetchJsonRpc(
-    rpcUrl,
+    rpc,
     {
       jsonrpc: "2.0",
       id: 1,
       method: "eth_blockNumber",
       params: [],
     },
-    timeout
+    timeout,
+    options.signal
   );
 
   const result = json as RpcSingleResult;
@@ -442,7 +499,7 @@ function decodeUint256Tuple(hexData: string, count: number): bigint[] {
  * Fetch token addresses from a Curve pool
  */
 export async function getPoolCoins(
-  rpcUrl: string,
+  rpc: RpcTarget,
   poolAddress: string,
   numCoins: number = 2,
   options: BatchRpcOptions = {}
@@ -452,7 +509,7 @@ export async function getPoolCoins(
     data: buildCoinsCalldata(i),
   }));
 
-  const results = await batchRpcCalls(rpcUrl, calls, options);
+  const results = await batchRpcCalls(rpc, calls, options);
   return results.map((r) => {
     if (r === null) return "0x0000000000000000000000000000000000000000";
     return bigintToAddress(r);
@@ -463,7 +520,7 @@ export async function getPoolCoins(
  * Fetch decimals for multiple token addresses
  */
 export async function getTokenDecimals(
-  rpcUrl: string,
+  rpc: RpcTarget,
   tokenAddresses: string[],
   options: BatchRpcOptions = {}
 ): Promise<number[]> {
@@ -472,7 +529,7 @@ export async function getTokenDecimals(
     data: SELECTORS.DECIMALS,
   }));
 
-  const results = await batchRpcCalls(rpcUrl, calls, options);
+  const results = await batchRpcCalls(rpc, calls, options);
   return results.map((r) => (r !== null ? Number(r) : 18)); // Default to 18 if fetch fails
 }
 
@@ -509,7 +566,7 @@ export function normalizeBalances(balances: bigint[], precisions: bigint[]): big
  * Fetch pool balances
  */
 export async function getPoolBalances(
-  rpcUrl: string,
+  rpc: RpcTarget,
   poolAddress: string,
   numCoins: number = 2,
   options: BatchRpcOptions = {}
@@ -519,7 +576,7 @@ export async function getPoolBalances(
     data: buildBalancesCalldata(i),
   }));
 
-  const results = await batchRpcCalls(rpcUrl, calls, options);
+  const results = await batchRpcCalls(rpc, calls, options);
   return results.map((r) => r ?? 0n);
 }
 
@@ -545,7 +602,7 @@ export interface StableSwapFetchOptions {
 /**
  * Fetch StableSwap pool parameters in a single batched call
  *
- * @param rpcUrl - JSON-RPC endpoint URL
+ * @param rpc - JSON-RPC endpoint URL, or a {@link CurveRpc} transport
  * @param poolAddress - Pool contract address
  * @param numCoins - Number of coins in pool (default 2)
  * @param options - Fetch options (normalize balances, strict mode, etc.)
@@ -553,7 +610,7 @@ export interface StableSwapFetchOptions {
  * @throws Error if strict mode is enabled and any RPC call fails
  */
 export async function getStableSwapParams(
-  rpcUrl: string,
+  rpc: RpcTarget,
   poolAddress: string,
   numCoins: number = 2,
   options: StableSwapFetchOptions = {}
@@ -572,7 +629,7 @@ export async function getStableSwapParams(
     { to: poolAddress, data: SELECTORS.OFFPEG_FEE_MULTIPLIER }
   );
 
-  const results = await batchRpcCalls(rpcUrl, calls, {
+  const results = await batchRpcCalls(rpc, calls, {
     strict: options.strict,
     blockTag: options.blockTag,
   });
@@ -606,11 +663,11 @@ export async function getStableSwapParams(
       decimals = options.normalize;
     } else {
       // Fetch token addresses then decimals
-      const coins = await getPoolCoins(rpcUrl, poolAddress, numCoins, {
+      const coins = await getPoolCoins(rpc, poolAddress, numCoins, {
         strict: options.strict,
         blockTag: options.blockTag,
       });
-      decimals = await getTokenDecimals(rpcUrl, coins, {
+      decimals = await getTokenDecimals(rpc, coins, {
         strict: options.strict,
         blockTag: options.blockTag,
       });
@@ -654,14 +711,14 @@ export interface CryptoSwapFetchOptions {
 /**
  * Fetch CryptoSwap (Twocrypto) pool parameters in a single batched call
  *
- * @param rpcUrl - JSON-RPC endpoint URL
+ * @param rpc - JSON-RPC endpoint URL, or a {@link CurveRpc} transport
  * @param poolAddress - Pool contract address
  * @param options - Fetch options (precisions, strict mode)
  * @returns Pool parameters for off-chain calculations
  * @throws Error if strict mode is enabled and any RPC call fails
  */
 export async function getCryptoSwapParams(
-  rpcUrl: string,
+  rpc: RpcTarget,
   poolAddress: string,
   options: CryptoSwapFetchOptions = {}
 ): Promise<CryptoSwapParams> {
@@ -679,7 +736,7 @@ export async function getCryptoSwapParams(
     { to: poolAddress, data: SELECTORS.PRICE_SCALE },
   ];
 
-  const results = await batchRpcCalls(rpcUrl, calls, {
+  const results = await batchRpcCalls(rpc, calls, {
     strict: options.strict,
     blockTag: options.blockTag,
   });
@@ -732,12 +789,12 @@ export interface YieldBasisVirtualPoolFetchOptions {
  * AMM.fee(), backing pool balances, and backing pool totalSupply().
  */
 export async function getYieldBasisVirtualPoolParams(
-  rpcUrl: string,
+  rpc: RpcTarget,
   virtualPoolAddress: string,
   options: YieldBasisVirtualPoolFetchOptions = {}
 ): Promise<YieldBasisVirtualPoolRpcParams> {
   const [ammResult, poolResult] = await batchRpcCalls(
-    rpcUrl,
+    rpc,
     [
       { to: virtualPoolAddress, data: SELECTORS.YB_AMM },
       { to: virtualPoolAddress, data: SELECTORS.YB_POOL },
@@ -756,7 +813,7 @@ export async function getYieldBasisVirtualPoolParams(
   const poolAddress = bigintToAddress(poolResult);
 
   const rawResults = await batchRpcRawCalls(
-    rpcUrl,
+    rpc,
     [
       { to: ammAddress, data: SELECTORS.YB_GET_STATE },
       { to: ammAddress, data: SELECTORS.FEE },
@@ -815,14 +872,14 @@ export interface TricryptoFetchOptions {
 /**
  * Fetch Tricrypto (3-coin) pool parameters in a single batched call
  *
- * @param rpcUrl - JSON-RPC endpoint URL
+ * @param rpc - JSON-RPC endpoint URL, or a {@link CurveRpc} transport
  * @param poolAddress - Pool contract address
  * @param options - Fetch options (precisions, strict mode)
  * @returns Pool parameters for off-chain calculations
  * @throws Error if strict mode is enabled and any RPC call fails
  */
 export async function getTricryptoParams(
-  rpcUrl: string,
+  rpc: RpcTarget,
   poolAddress: string,
   options: TricryptoFetchOptions = {}
 ): Promise<TricryptoParams> {
@@ -843,7 +900,7 @@ export async function getTricryptoParams(
     { to: poolAddress, data: buildPriceScaleCalldata(1) },
   ];
 
-  const results = await batchRpcCalls(rpcUrl, calls, {
+  const results = await batchRpcCalls(rpc, calls, {
     strict: options.strict,
     blockTag: options.blockTag,
   });
@@ -886,6 +943,8 @@ export interface TricryptoLegacyFetchOptions {
   blockTag?: string | number | bigint;
   /** Timeout in milliseconds for each RPC request (default 30000) */
   timeout?: number;
+  /** Aborts the reads (see {@link BatchRpcOptions.signal}) */
+  signal?: AbortSignal;
   /**
    * Pool variant. Default: by address for the two mainnet pools; for any
    * other address, tricrypto v1 when the pool has `A_precise()`, otherwise
@@ -906,11 +965,11 @@ const TOKEN = "0xfc0c546a"; // token()
  * @throws Error if any required view fails or returns nothing
  */
 export async function getTricryptoLegacyState(
-  rpcUrl: string,
+  rpc: RpcTarget,
   poolAddress: string,
   options: TricryptoLegacyFetchOptions = {}
 ): Promise<TricryptoLegacyState> {
-  const batchOptions = { blockTag: options.blockTag, timeout: options.timeout };
+  const batchOptions = { blockTag: options.blockTag, timeout: options.timeout, signal: options.signal };
   const word = (raw: string | null): bigint | null =>
     raw === null ? null : BigInt(raw.slice(0, 66));
   const names = [
@@ -921,7 +980,7 @@ export async function getTricryptoLegacyState(
     "token()", "coins(0)", "coins(1)", "coins(2)",
   ];
   const raw = await batchRpcRawCalls(
-    rpcUrl,
+    rpc,
     [
       ...[0, 1, 2].map((k) => ({ to: poolAddress, data: buildBalancesCalldata(k) })),
       ...[0, 1].map((k) => ({ to: poolAddress, data: buildPriceScaleCalldata(k) })),
@@ -961,7 +1020,7 @@ export async function getTricryptoLegacyState(
 
   const meta = (
     await batchRpcRawCalls(
-      rpcUrl,
+      rpc,
       [
         { to: token, data: SELECTORS.TOTAL_SUPPLY },
         ...coins.map((c) => ({ to: c, data: SELECTORS.DECIMALS })),
@@ -999,7 +1058,7 @@ export async function getTricryptoLegacyState(
  * Get on-chain get_dy result for comparison/verification
  */
 export async function getOnChainDy(
-  rpcUrl: string,
+  rpc: RpcTarget,
   poolAddress: string,
   i: number,
   j: number,
@@ -1011,7 +1070,7 @@ export async function getOnChainDy(
     ? buildGetDyFactoryCalldata(i, j, dx)
     : buildGetDyCalldata(i, j, dx);
 
-  const [result] = await batchRpcCalls(rpcUrl, [{ to: poolAddress, data }], options);
+  const [result] = await batchRpcCalls(rpc, [{ to: poolAddress, data }], options);
   return result;
 }
 
@@ -1019,7 +1078,7 @@ export async function getOnChainDy(
  * Get on-chain get_dx result for comparison/verification.
  */
 export async function getOnChainDx(
-  rpcUrl: string,
+  rpc: RpcTarget,
   poolAddress: string,
   i: number,
   j: number,
@@ -1027,7 +1086,7 @@ export async function getOnChainDx(
   options: BatchRpcOptions = {}
 ): Promise<bigint | null> {
   const data = buildGetDxCalldata(i, j, dy);
-  const [result] = await batchRpcCalls(rpcUrl, [{ to: poolAddress, data }], options);
+  const [result] = await batchRpcCalls(rpc, [{ to: poolAddress, data }], options);
   return result;
 }
 
@@ -1035,11 +1094,11 @@ export async function getOnChainDx(
  * Preview redeem from an ERC4626 vault
  */
 export async function previewRedeem(
-  rpcUrl: string,
+  rpc: RpcTarget,
   vaultAddress: string,
   shares: bigint | string
 ): Promise<bigint> {
-  const [result] = await batchRpcCalls(rpcUrl, [
+  const [result] = await batchRpcCalls(rpc, [
     { to: vaultAddress, data: buildPreviewRedeemCalldata(shares) },
   ]);
 
@@ -1131,16 +1190,27 @@ function decodeStaticArray(data: string): bigint[] {
  * stored_rates() returns the current rate multipliers for all tokens,
  * including dynamic rates for oracle tokens and ERC4626 tokens.
  *
- * @param rpcUrl - JSON-RPC endpoint URL
+ * @param rpc - JSON-RPC endpoint URL, or a {@link CurveRpc} transport
  * @param poolAddress - Pool contract address
  * @returns Array of rate multipliers (10^36 precision base, adjusted for oracles)
  */
 export async function getStoredRates(
-  rpcUrl: string,
+  rpc: RpcTarget,
   poolAddress: string,
-  options: Pick<BatchRpcOptions, "blockTag"> = {}
+  options: Pick<BatchRpcOptions, "blockTag" | "signal"> = {}
 ): Promise<bigint[]> {
-  const response = await fetch(rpcUrl, {
+  if (typeof rpc !== "string") {
+    const [raw] = await batchRpcRawCalls(
+      rpc,
+      [{ to: poolAddress, data: SELECTORS.STORED_RATES }],
+      options
+    );
+    if (raw === null) throw new Error(`Failed to fetch stored_rates from ${poolAddress}`);
+    return decodeUint256Array(raw);
+  }
+
+  throwIfAborted(options.signal);
+  const response = await fetch(rpc, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -1152,6 +1222,7 @@ export async function getStoredRates(
         encodeBlockTag(options.blockTag),
       ],
     }),
+    signal: options.signal,
   });
 
   const json = (await response.json()) as { result?: string; error?: { message: string } };
@@ -1167,12 +1238,12 @@ export async function getStoredRates(
  * Fetch N_COINS from a StableSwapNG pool
  */
 export async function getNCoins(
-  rpcUrl: string,
+  rpc: RpcTarget,
   poolAddress: string,
-  options: Pick<BatchRpcOptions, "blockTag"> = {}
+  options: Pick<BatchRpcOptions, "blockTag" | "signal"> = {}
 ): Promise<number> {
   const [result] = await batchRpcCalls(
-    rpcUrl,
+    rpc,
     [{ to: poolAddress, data: SELECTORS.N_COINS }],
     options
   );
@@ -1208,20 +1279,28 @@ export interface ExactStableSwapParams {
  * This function fetches stored_rates() which includes dynamic rates for oracle
  * and ERC4626 tokens, providing exact precision matching with on-chain.
  *
- * @param rpcUrl - JSON-RPC endpoint URL
+ * @param rpc - JSON-RPC endpoint URL, or a {@link CurveRpc} transport
  * @param poolAddress - Pool contract address
  * @param options - `blockTag` to read at (default "latest")
  * @returns Parameters for exact precision calculations
  */
 export async function getExactStableSwapParams(
-  rpcUrl: string,
+  rpc: RpcTarget,
   poolAddress: string,
-  options: Pick<BatchRpcOptions, "blockTag"> = {}
+  options: Pick<BatchRpcOptions, "blockTag" | "signal"> = {}
 ): Promise<ExactStableSwapParams> {
+  // A transport's errors are never a missing view (its reverts read as null),
+  // so only "Failed to fetch …" falls back there.
+  const missing = (error: unknown): null => {
+    if (typeof rpc !== "string" && !(error instanceof Error && error.message.startsWith("Failed to fetch"))) {
+      throw error;
+    }
+    return null;
+  };
   // First, get N_COINS and stored_rates (which includes dynamic rates)
   const [nCoins, rates] = await Promise.all([
-    getNCoins(rpcUrl, poolAddress, options).catch(() => null),
-    getStoredRates(rpcUrl, poolAddress, options).catch(() => null),
+    getNCoins(rpc, poolAddress, options).catch(missing),
+    getStoredRates(rpc, poolAddress, options).catch(missing),
   ]);
 
   // Determine number of coins
@@ -1242,7 +1321,7 @@ export async function getExactStableSwapParams(
     { to: poolAddress, data: SELECTORS.OFFPEG_FEE_MULTIPLIER }
   );
 
-  const results = await batchRpcCalls(rpcUrl, calls, options);
+  const results = await batchRpcCalls(rpc, calls, options);
 
   const balances = results.slice(0, numCoins).map((r) => r ?? 0n);
   const A = results[numCoins] ?? 0n;
@@ -1252,8 +1331,8 @@ export async function getExactStableSwapParams(
   // If we couldn't get stored_rates, fall back to computing from decimals
   let finalRates = rates;
   if (!finalRates) {
-    const coins = await getPoolCoins(rpcUrl, poolAddress, numCoins, options);
-    const decimals = await getTokenDecimals(rpcUrl, coins, options);
+    const coins = await getPoolCoins(rpc, poolAddress, numCoins, options);
+    const decimals = await getTokenDecimals(rpc, coins, options);
     finalRates = decimals.map((d) => 10n ** BigInt(36 - d));
   }
 
@@ -1286,11 +1365,11 @@ export interface TriCrvFetchOptions {
  * triCRV is a classic StableSwap pool (DAI/USDC/USDT), not Tricrypto-NG.
  */
 export async function getTriCrvParams(
-  rpcUrl: string,
+  rpc: RpcTarget,
   poolAddress: string = TRICRV_POOL_ADDRESS,
   options: TriCrvFetchOptions = {}
 ): Promise<ExactStableSwapParams> {
-  const params = await getStableSwapParams(rpcUrl, poolAddress, 3, {
+  const params = await getStableSwapParams(rpc, poolAddress, 3, {
     strict: options.strict,
     blockTag: options.blockTag,
   });
@@ -1379,12 +1458,12 @@ function buildBandList(
  * units, and public `llamalend.getDy/getDx` inputs remain native token amounts.
  */
 export async function getLlamaLendAmmParams(
-  rpcUrl: string,
+  rpc: RpcTarget,
   ammAddress: string,
   options: LlamaLendAmmFetchOptions = {}
 ): Promise<LlamaLendAmmRpcParams> {
   const coreResults = await batchRpcRawCalls(
-    rpcUrl,
+    rpc,
     [
       { to: ammAddress, data: SELECTORS.A },
       { to: ammAddress, data: SELECTORS.FEE },
@@ -1418,7 +1497,7 @@ export async function getLlamaLendAmmParams(
   ];
 
   const fetchedBands = buildBandList(minBand, maxBand, options);
-  const decimals = (await getTokenDecimals(rpcUrl, coins, {
+  const decimals = (await getTokenDecimals(rpc, coins, {
     strict: options.strict,
     blockTag: options.blockTag,
   })) as [number, number];
@@ -1434,7 +1513,7 @@ export async function getLlamaLendAmmParams(
     );
   }
 
-  const bandResults = await batchRpcRawCalls(rpcUrl, bandCalls, {
+  const bandResults = await batchRpcRawCalls(rpc, bandCalls, {
     strict: options.strict,
     blockTag: options.blockTag,
   });
