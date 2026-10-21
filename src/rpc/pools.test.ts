@@ -15,8 +15,10 @@ interface RecordedCase {
   pool: string;
   lpToken?: string;
   descriptor: { family: string; [k: string]: unknown };
-  get_virtual_price?: string;
-  get_dy?: { i: number; j: number; dx: string; result: string };
+  /** null where the pool's own view reverts */
+  get_virtual_price?: string | null;
+  get_dy?: { i: number; j: number; dx: string; result: string | null };
+  calc_token_amount?: { amounts: string[]; isDeposit: boolean; result: string }[];
 }
 
 const responses = recorded.responses as Record<string, { result?: unknown; error?: unknown }>;
@@ -56,8 +58,16 @@ describe("rpc.detectPool / readPoolState (recorded at Ethereum block " + recorde
       }
       const state = await readPoolState(RPC, c.pool, opts);
       expect(state.family).toBe(descriptor.family);
-      expect(pools.getVirtualPrice(state)).toBe(BigInt(c.get_virtual_price!));
+      if (c.get_virtual_price === null) expect(() => pools.getVirtualPrice(state)).toThrow();
+      else expect(pools.getVirtualPrice(state)).toBe(BigInt(c.get_virtual_price!));
+      for (const { amounts, isDeposit, result } of c.calc_token_amount ?? []) {
+        expect(pools.calcTokenAmount(state, amounts.map(BigInt), isDeposit)).toBe(BigInt(result));
+      }
       const { i, j, dx, result } = c.get_dy!;
+      if (result === null) {
+        expect(() => pools.getDy(state, i, j, BigInt(dx))).toThrow();
+        return;
+      }
       const policy = state.family === "twocryptoStableswap" ? state.params.policy : undefined;
       if (policy && !twocryptoStableswap.ZERO_FEE_POLICIES.includes(policy)) {
         // a dynamic POLICY needs the caller's policyFee
@@ -78,7 +88,7 @@ describe("rpc.detectPool / readPoolState (recorded at Ethereum block " + recorde
     const euroc = await read("EUROC");
     expect(() => pools.calcTokenAmount(euroc, [10n ** 6n, 0n], false)).toThrow("deposits only");
     const tricrypto2 = await read("tricrypto2");
-    expect(() => pools.calcTokenAmount(tricrypto2, [1n, 1n, 1n], true)).toThrow("not ported");
+    expect(() => pools.calcTokenAmount(tricrypto2, [1n, 1n], true)).toThrow("expected 3 amounts");
     expect(() => pools.getDyUnderlying(tricrypto2, 0, 1, 1n)).toThrow("not a stableswap metapool");
     const usdv = await read("USDV");
     expect(pools.nCoins(usdv)).toBe(2);

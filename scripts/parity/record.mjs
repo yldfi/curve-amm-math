@@ -31,6 +31,7 @@ const POOLS = [
   ["Euro pool (factory v1 plain3basic)", "0xe7A3b38c39F97E977723bd1239C3470702568e7B"],
   ["EUROC/3Crv (CurveCryptoSwap2, single-div newton_y)", "0xE84f5b1582BA325fDf9cE6B0c1F087ccfC924e54"],
   ["tricrypto2", "0xD51a44d3FaE010294C616388b506AcdA1bfAAE46"],
+  ["tricrypto v1", "0x80466c64868E1ab14a1Ddf27A676C3fcBE638Fe5"],
   ["TriDBR (tricrypto-ng v2.0.1)", "0x66da369fC5dBBa0774Da70546Bd20F2B242Cd34d"],
   ["SPOT/USDC (twocrypto-ng v2.1.0)", "0x256fbdA404B96A283b1Ae851b465D4B9601C25a6"],
   ["Yield Basis cbBTC (twocrypto v3.0.0)", "0x862CB4E988FB66E72f128d1183829f8c05B6c6A0"],
@@ -39,6 +40,10 @@ const POOLS = [
   ["4pool (main pool with a version)", "0x4e0915C88bC70750D68C481540F081fEFaF22273"],
   ["crvUSD/WETH Oraclized Policy (dynamic POLICY)", "0x846254836ab71E53fa66FAdB95129036C837C030"],
   ["WBTC-USDC Pilot (stable-ng without stored_rates)", "0x0dda89A44BACAaF11a2c3183E4B44DfF6f13f2e6"],
+  // near-empty factory v1 metapools: get_dy_underlying reverts, so detection reads the code; every view reverts
+  ["Titanium Dollar metapool (forwarder proxy, near-empty)", "0xA77d09743F77052950C4eb4e6547E9665299BecD"],
+  ["SORA TBC Dollar metapool (EIP-1167, zero supply)", "0x110cc323ca53d622469EdD217387E2E6B33F1dF5"],
+  ["REUSD/3Crv (coin 0 has no decimals(): MetaRegistry decimals)", "0xC61557C5d177bd7DC889A3b621eEC333e168f68A"],
 ];
 
 const recorded = new Map();
@@ -73,9 +78,24 @@ for (const [name, pool, lpToken] of POOLS) {
       [{ to: pool, data: "0xbb7b8b80" }, ...swaps.map(({ i, j, dx }) => ({ to: pool, data: (crypto ? "0x556d6e9f" : "0x5e0d443f") + u(i) + u(j) + u(dx) }))],
       { blockTag: block },
     );
-    entry.get_virtual_price = BigInt(vp.slice(0, 66)).toString();
-    const k = dys.findIndex((d) => d !== null);
-    entry.get_dy = { ...swaps[k], dx: swaps[k].dx.toString(), result: BigInt(dys[k].slice(0, 66)).toString() };
+    // null where the pool's own view reverts (near-empty pools)
+    entry.get_virtual_price = vp === null ? null : BigInt(vp.slice(0, 66)).toString();
+    const k = Math.max(0, dys.findIndex((d) => d !== null));
+    entry.get_dy = { ...swaps[k], dx: swaps[k].dx.toString(), result: dys[k] === null ? null : BigInt(dys[k].slice(0, 66)).toString() };
+    if (state.family === "tricryptoLegacy") {
+      // calc_token_amount(uint256[3],bool), 0.1% of each balance in and out
+      const amounts = balances.map((b) => b / 1000n);
+      const ctas = await rpc.batchRpcRawCalls(
+        rpcUrl,
+        [true, false].map((d) => ({ to: pool, data: "0x3883e119" + amounts.map(u).join("") + u(d ? 1 : 0) })),
+        { blockTag: block },
+      );
+      entry.calc_token_amount = [true, false].map((isDeposit, n) => ({
+        amounts: amounts.map(String),
+        isDeposit,
+        result: BigInt(ctas[n].slice(0, 66)).toString(),
+      }));
+    }
   }
   cases.push(entry);
   console.log(`${descriptor.family.padEnd(20)} ${name}`);

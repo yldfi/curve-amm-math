@@ -217,6 +217,7 @@ const SIG = {
   oracle: "0x7dc0d1d0",
   latestAnswer: "0x50d25bcd",
   getPoolFromLpToken: "0xbdf475c3",
+  getDecimals: "0x52b51555",
   getDyUnderlyingI: "0x07211ef7",
 } as const;
 
@@ -420,27 +421,64 @@ function words(raw: string | null, n: number): bigint[] | null {
 const arg = (selector: string, ...args: (bigint | number)[]) =>
   selector + args.map((a) => encodeUint256(BigInt(a))).join("");
 
-async function implementationOf(ctx: Ctx, pool: string): Promise<string | undefined> {
-  const code = ((await request(ctx, "eth_getCode", [pool, ctx.block])) as string) ?? "0x";
+async function codeOf(ctx: Ctx, addr: string): Promise<string> {
+  return ((await request(ctx, "eth_getCode", [addr, ctx.block])) as string) ?? "0x";
+}
+
+/** The pool's runtime code, and its implementation when the pool is a minimal proxy */
+async function implementationOf(ctx: Ctx, pool: string): Promise<{ code: string; implementation?: string }> {
+  const code = await codeOf(ctx, pool);
   // EIP-1167 (363d3d373d3d3d363d73 <impl> 5af4…) or Vyper's create_forwarder_to
   // (366000600037611000600036600073 <impl> 5af4…)
   const m =
     /^0x363d3d373d3d3d363d73([0-9a-f]{40})5af43d82803e903d91602b57fd5bf3$/i.exec(code) ??
     /^0x366000600037611000600036600073([0-9a-f]{40})5af4602c57600080fd5b6110006000f3$/i.exec(code);
-  return m ? "0x" + m[1].toLowerCase() : undefined;
+  return m ? { code, implementation: "0x" + m[1].toLowerCase() } : { code };
 }
 
-async function decimalsOf(ctx: Ctx, tokens: string[]): Promise<number[]> {
+/** Whether runtime `code` contains the 4-byte `selector` (byte-aligned) */
+function hasSelector(code: string, selector: string): boolean {
+  const needle = selector.slice(2).toLowerCase();
+  const hex = code.toLowerCase();
+  for (let k = hex.indexOf(needle, 2); k >= 0; k = hex.indexOf(needle, k + 1)) {
+    if (k % 2 === 0) return true;
+  }
+  return false;
+}
+
+/**
+ * `decimals()` of each token. With `pool`, `tokens` are its coins in order,
+ * and a coin whose `decimals()` reverts (a bricked token, REUSD in
+ * REUSD/3Crv) takes the decimals the Ethereum MetaRegistry recorded for the
+ * pool, which match the rate the pool stored at deployment.
+ */
+async function decimalsOf(ctx: Ctx, tokens: string[], pool?: string): Promise<number[]> {
   const raw = await calls(
     ctx,
     tokens.map((t) => ({ to: t, data: SIG.decimals }))
   );
-  return tokens.map((t, k) => {
-    if (t.toLowerCase() === ETH_PLACEHOLDER) return 18;
-    const d = word(raw[k]);
-    if (d === null) throw new Error(`decimals() failed on ${t}`);
-    return Number(d);
-  });
+  let registry: bigint[] | null | undefined;
+  const out: number[] = [];
+  for (let k = 0; k < tokens.length; k++) {
+    const t = tokens[k];
+    if (t.toLowerCase() === ETH_PLACEHOLDER) {
+      out.push(18);
+      continue;
+    }
+    let d = word(raw[k]);
+    if (d === null && pool) {
+      if (registry === undefined) {
+        const [r] = await calls(ctx, [{ to: META_REGISTRY, data: SIG.getDecimals + pool.slice(2).padStart(64, "0") }]);
+        registry = words(r, MAX_COINS);
+      }
+      if (registry && registry[k] > 0n) d = registry[k];
+    }
+    if (d === null) {
+      throw new Error(`decimals() failed on ${t}${pool ? ` (and the MetaRegistry has no decimals for ${pool})` : ""}`);
+    }
+    out.push(Number(d));
+  }
+  return out;
 }
 
 // ----------------------------------------------------------------------------
@@ -481,7 +519,7 @@ export async function detectPool(
 
 async function detectWith(ctx: Ctx, poolIn: string, lpTokenIn?: string): Promise<PoolDescriptor> {
   const pool = poolIn.toLowerCase();
-  const [implementation, raw] = await Promise.all([
+  const [{ code, implementation }, raw] = await Promise.all([
     implementationOf(ctx, pool),
     calls(
       ctx,
@@ -573,7 +611,9 @@ async function detectWith(ctx: Ctx, poolIn: string, lpTokenIn?: string): Promise
   if (coins.length < 2) return unsupported("fewer than 2 coins");
   const nCoins = coins.length;
   const basePool =
-    address(basePoolRaw) ?? address(basePoolNgRaw) ?? (await impliedBasePool(ctx, pool, coins[nCoins - 1]));
+    address(basePoolRaw) ??
+    address(basePoolNgRaw) ??
+    (await impliedBasePool(ctx, implementation ? await codeOf(ctx, implementation) : code, coins[nCoins - 1]));
   const lpToken =
     lpTokenIn?.toLowerCase() ?? (totalSupplyRaw !== null ? pool : (address(lpTokenRaw) ?? address(tokenRaw)));
   if (!lpToken) return unsupported("no totalSupply(), lp_token() or token(): pass lpToken");
@@ -687,18 +727,20 @@ async function detectWith(ctx: Ctx, poolIn: string, lpTokenIn?: string): Promise
 }
 
 /**
- * Old factory metapools have no `base_pool()`: when `get_dy_underlying`
- * answers and the last coin is a Curve LP token (its `minter()`, the
- * Ethereum MetaRegistry's `get_pool_from_lp_token`, or the coin itself when
- * the base pool is its own LP token), that pool is the base.
+ * Old factory metapools have no `base_pool()`: when the pool's code (its
+ * implementation's, for a proxy) has `get_dy_underlying` and the last coin is
+ * a Curve LP token (its `minter()`, the Ethereum MetaRegistry's
+ * `get_pool_from_lp_token`, or the coin itself when the base pool is its own
+ * LP token), that pool is the base. The selector is checked in the code
+ * rather than by calling `get_dy_underlying`, which reverts on near-empty
+ * pools.
  */
-async function impliedBasePool(ctx: Ctx, pool: string, lastCoin: string): Promise<string | undefined> {
-  const [minterRaw, registryRaw, underlyingRaw] = await calls(ctx, [
+async function impliedBasePool(ctx: Ctx, code: string, lastCoin: string): Promise<string | undefined> {
+  if (!hasSelector(code, SIG.getDyUnderlyingI)) return undefined;
+  const [minterRaw, registryRaw] = await calls(ctx, [
     { to: lastCoin, data: SIG.minter },
     { to: META_REGISTRY, data: SIG.getPoolFromLpToken + lastCoin.slice(2).padStart(64, "0") },
-    { to: pool, data: arg(SIG.getDyUnderlyingI, 1, 0, 10n ** 6n) },
   ]);
-  if (underlyingRaw === null) return undefined;
   // a base pool that is its own LP token (Arbitrum 2pool) is the last coin itself
   const found = [address(minterRaw), address(registryRaw), lastCoin.toLowerCase()].find(
     (a) => a && a !== ZERO_ADDRESS
@@ -800,11 +842,11 @@ async function readStable(ctx: Ctx, d: StableswapDescriptor): Promise<Stableswap
     if (src.kind === "rai") {
       rate0 = need((await calls(ctx, [{ to: src.snap, data: SIG.snappedRedemptionPrice }]))[0], "snappedRedemptionPrice()", src.snap) / 10n ** 9n;
     } else {
-      rate0 = 10n ** BigInt(36 - (await decimalsOf(ctx, [coins[0]]))[0]);
+      rate0 = 10n ** BigInt(36 - (await decimalsOf(ctx, [coins[0]], pool))[0]);
     }
     rates = [rate0, baseVp];
   } else {
-    rates = (await decimalsOf(ctx, coins)).map((dec) => 10n ** BigInt(36 - dec));
+    rates = (await decimalsOf(ctx, coins, pool)).map((dec) => 10n ** BigInt(36 - dec));
     if (src.kind === "lending") rates = await lendingRates(ctx, d, coins, src.tokens, rates);
     else if (src.kind === "reth") {
       rates[1] = need((await calls(ctx, [{ to: coins[1], data: SIG.getExchangeRate }]))[0], "getExchangeRate()", coins[1]);
