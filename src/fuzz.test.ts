@@ -317,8 +317,8 @@ describe("CryptoSwap Fuzz Tests", () => {
             const dy = cryptoswap.getDy(params, 0, 1, dx);
             expect(dy).toBeLessThanOrEqual(balances[1]);
           } catch (e) {
-            // Convergence failures are acceptable
-            expect((e as Error).message).toMatch(/converge|zero/);
+            // Convergence failures and the contract's unsafe-value reverts are acceptable
+            expect((e as Error).message).toMatch(/converge|zero|unsafe/);
           }
         }),
         { numRuns: 300 }

@@ -8,3 +8,4 @@ coverage/
 
 # Published-package compatibility check cache
 .compat/
+.parity/

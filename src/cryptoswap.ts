@@ -152,6 +152,10 @@ export function newtonY(
   if (D === 0n) {
     throw new Error("newtonY: D cannot be zero");
   }
+  // The contract's safety asserts (A/gamma ranges excepted, as in newtonD)
+  if (D < 10n ** 17n || D > 10n ** 33n) {
+    throw new Error("newtonY: unsafe values D");
+  }
 
   // Initial guess: y = D^2 / (x_j * N^2)
   let y = (D * D) / (x_j * N_COINS * N_COINS);
@@ -163,6 +167,9 @@ export function newtonY(
 
   // K0_i = (10^18 * N) * x_j / D
   const K0_i = (PRECISION * N_COINS * x_j) / D;
+  if (K0_i < 10n ** 16n * N_COINS || K0_i > 10n ** 20n * N_COINS) {
+    throw new Error("newtonY: unsafe values x[i]");
+  }
 
   // Convergence limit
   const convergence_limit = (() => {
@@ -244,6 +251,10 @@ export function newtonY(
     const diff = y > y_prev ? y - y_prev : y_prev - y;
     const threshold = y / CONVERGENCE_THRESHOLD;
     if (diff < (convergence_limit > threshold ? convergence_limit : threshold)) {
+      const frac = (y * PRECISION) / D;
+      if (frac < 10n ** 16n || frac > 10n ** 20n) {
+        throw new Error("newtonY: unsafe value for y");
+      }
       return y;
     }
   }
@@ -731,7 +742,8 @@ function unscaleOutput3(
 /**
  * Off-chain implementation of CurveCryptoSwap2 `get_dy` (exact: same order
  * of operations and rounding as the contract)
- * @returns Output amount (0n for invalid inputs)
+ * @returns Output amount (0n for invalid indices or amounts)
+ * @throws Error where the contract's `newton_y` safety asserts revert (unsafe D, x or y)
  */
 export function getDy(
   params: TwocryptoParams,

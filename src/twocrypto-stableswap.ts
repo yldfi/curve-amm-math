@@ -165,15 +165,18 @@ export function xp(params: TwocryptoStableswapParams): [bigint, bigint] {
 }
 
 /**
- * Mirrors `StableswapMath.newton_D` v0.1.1: the StableSwap-NG invariant with
- * A_MULTIPLIER as its precision, after the `!balance` check (ratio < 10 000).
+ * Mirrors `StableswapMath.newton_D`: the StableSwap-NG invariant with
+ * A_MULTIPLIER as its precision. v3.0.0's MATH first asserts `!balance`
+ * (ratio < 10 000); v2.1.0d's has no such check (`balanceCheck: false`).
  */
-export function newtonD(A: bigint, xpIn: readonly [bigint, bigint]): bigint {
+export function newtonD(A: bigint, xpIn: readonly [bigint, bigint], balanceCheck: boolean = true): bigint {
   const [x0, x1] = xpIn;
-  if (x0 <= 0n || x1 <= 0n) fail("!balance");
-  const max = x0 > x1 ? x0 : x1;
-  const min = x0 > x1 ? x1 : x0;
-  if (max / min >= 10000n) fail("!balance");
+  if (balanceCheck) {
+    if (x0 <= 0n || x1 <= 0n) fail("!balance");
+    const max = x0 > x1 ? x0 : x1;
+    const min = x0 > x1 ? x1 : x0;
+    if (max / min >= 10000n) fail("!balance");
+  }
   return getDVariant([x0, x1], A, "ng", A_MULTIPLIER);
 }
 
@@ -214,7 +217,7 @@ export function fee(params: TwocryptoStableswapParams): bigint {
 
 /** Pool `_get_D` (views `_calc_D_ramp`): stored D, or newton_D while ramping. */
 function currentD(params: TwocryptoStableswapParams): bigint {
-  return params.isRamping ? newtonD(params.A, xp(params)) : params.D;
+  return params.isRamping ? newtonD(params.A, xp(params), params.version === "v3.0.0") : params.D;
 }
 
 /**
@@ -298,7 +301,7 @@ export function calcTokenAmount(
     }
   }
   const xpNew = scale(balances, params.precisions, params.priceScale);
-  const D = newtonD(params.A, xpNew);
+  const D = newtonD(params.A, xpNew, params.version === "v3.0.0");
 
   let d_token: bigint;
   if (D0 === 0n) {

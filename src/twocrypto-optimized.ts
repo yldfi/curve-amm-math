@@ -96,6 +96,12 @@ export interface TwocryptoOptimizedParams {
   totalSupply?: bigint;
   /** True when `pool.future_A_gamma_time() > block.timestamp` */
   isRamping?: boolean;
+  /**
+   * `pool.version()`. "v2.0.0" pools use MATH v2.0.0, whose safety bounds are
+   * fixed (and gamma ≤ 2e15) rather than scaled with gamma; omitted means the
+   * v2.1.0 bounds.
+   */
+  version?: string;
 }
 
 function fail(message: string): never {
@@ -114,17 +120,53 @@ function maxInt(a: bigint, b: bigint): bigint {
   return a > b ? a : b;
 }
 
-function limMul(gamma: bigint): bigint {
+/**
+ * The math contract's safety bounds (inclusive). MATH v2.1.0 scales them with
+ * gamma through `lim_mul`; MATH v2.0.0 has fixed ones and MAX_GAMMA = 2e15.
+ */
+interface Bounds {
+  maxGamma: bigint;
+  /** K0_i = 2 * 1e18 * x_j / D, in newton_y / get_y */
+  k0Min: bigint;
+  k0Max: bigint;
+  /** y * 1e18 / D after newton_y / get_y */
+  yMin: bigint;
+  yMax: bigint;
+  /** x[i] * 1e18 / D after newton_D */
+  xMin: bigint;
+  xMax: bigint;
+}
+
+function bounds(gamma: bigint, version?: string): Bounds {
+  if (version === "v2.0.0") {
+    return {
+      maxGamma: 2n * 10n ** 15n,
+      k0Min: 10n ** 16n * N_COINS,
+      k0Max: 10n ** 20n * N_COINS,
+      yMin: 10n ** 16n - 1n,
+      yMax: 10n ** 20n,
+      xMin: 10n ** 16n - 1n,
+      xMax: 10n ** 20n,
+    };
+  }
   let lim = 100n * E18;
   if (gamma > MAX_GAMMA_SMALL) {
     lim = (lim * MAX_GAMMA_SMALL) / gamma;
   }
-  return lim;
+  return {
+    maxGamma: MAX_GAMMA,
+    k0Min: 10n ** 36n / lim,
+    k0Max: lim,
+    yMin: 10n ** 36n / N_COINS / lim,
+    yMax: lim / N_COINS,
+    xMin: 10n ** 16n / N_COINS,
+    xMax: 10n ** 20n / N_COINS,
+  };
 }
 
-function checkAGamma(ANN: bigint, gamma: bigint): void {
+function checkAGamma(ANN: bigint, gamma: bigint, b: Bounds): void {
   if (ANN < MIN_A || ANN > MAX_A) fail("unsafe values A");
-  if (gamma < MIN_GAMMA || gamma > MAX_GAMMA) fail("unsafe values gamma");
+  if (gamma < MIN_GAMMA || gamma > b.maxGamma) fail("unsafe values gamma");
 }
 
 function checkD(D: bigint): void {
@@ -141,13 +183,13 @@ function newtonYInner(
   x: readonly bigint[],
   D: bigint,
   i: number,
-  lim: bigint
+  b: Bounds
 ): bigint {
   const x_j = x[1 - i];
   let y = D ** 2n / (x_j * N_COINS ** 2n);
   const K0_i = (E18 * N_COINS * x_j) / D;
 
-  if (K0_i < 10n ** 36n / lim || K0_i > lim) fail("unsafe values x[i]");
+  if (K0_i < b.k0Min || K0_i > b.k0Max) fail("unsafe values x[i]");
 
   const convergence_limit = maxInt(maxInt(x_j / 10n ** 14n, D / 10n ** 14n), 100n);
 
@@ -196,26 +238,28 @@ function newtonYInner(
   fail("newton_y did not converge");
 }
 
-function checkYFrac(y: bigint, D: bigint, lim: bigint): void {
+function checkYFrac(y: bigint, D: bigint, b: Bounds): void {
   const frac = (y * E18) / D;
-  if (frac < 10n ** 36n / N_COINS / lim || frac > lim / N_COINS) fail("unsafe value for y");
+  if (frac < b.yMin || frac > b.yMax) fail("unsafe value for y");
 }
 
 /**
- * Mirrors `CurveTwocryptoMathOptimized.newton_y` v2.1.0.
+ * Mirrors `CurveTwocryptoMathOptimized.newton_y` v2.1.0 (`version: "v2.0.0"`
+ * for MATH v2.0.0's fixed bounds).
  */
 export function newtonY(
   ANN: bigint,
   gamma: bigint,
   x: readonly [bigint, bigint],
   D: bigint,
-  i: number
+  i: number,
+  version: string | undefined = undefined
 ): bigint {
-  checkAGamma(ANN, gamma);
+  const b = bounds(gamma, version);
+  checkAGamma(ANN, gamma, b);
   checkD(D);
-  const lim = limMul(gamma);
-  const y = newtonYInner(ANN, gamma, x, D, i, lim);
-  checkYFrac(y, D, lim);
+  const y = newtonYInner(ANN, gamma, x, D, i, b);
+  checkYFrac(y, D, b);
   return y;
 }
 
@@ -230,12 +274,13 @@ export function getY(
   _gamma: bigint,
   _x: readonly [bigint, bigint],
   _D: bigint,
-  i: number
+  i: number,
+  version: string | undefined = undefined
 ): [bigint, bigint] {
   if (i !== 0 && i !== 1) fail(`index out of bounds (i=${i})`);
-  checkAGamma(_ANN, _gamma);
+  const bnd = bounds(_gamma, version);
+  checkAGamma(_ANN, _gamma, bnd);
   checkD(_D);
-  const lim = limMul(_gamma);
 
   const ANN = _ANN;
   const gamma = _gamma;
@@ -245,7 +290,7 @@ export function getY(
   const gamma2 = gamma * gamma;
 
   const K0_i = (E18 * N_COINS * x_j) / D;
-  if (K0_i < 10n ** 36n / lim || K0_i > lim) fail("unsafe values x[i]");
+  if (K0_i < bnd.k0Min || K0_i > bnd.k0Max) fail("unsafe values x[i]");
 
   const ann_gamma2 = ANN * gamma2;
 
@@ -292,7 +337,7 @@ export function getY(
   const sqrt_arg = delta1 ** 2n + ((4n * delta0 ** 2n) / b) * delta0;
   if (sqrt_arg <= 0n) {
     // The math contract returns `_newton_y` directly here: no y-fraction check.
-    return [newtonYInner(_ANN, _gamma, _x, _D, i, lim), 0n];
+    return [newtonYInner(_ANN, _gamma, _x, _D, i, bnd), 0n];
   }
   const sqrt_val = isqrt(sqrt_arg);
 
@@ -312,7 +357,7 @@ export function getY(
 
   const y = ((((D ** 2n) / x_j) * root) / 4n) / E18;
   if (y < 0n || root < 0n) fail("negative root");
-  checkYFrac(y, _D, lim);
+  checkYFrac(y, _D, bnd);
   return [y, root];
 }
 
@@ -324,9 +369,11 @@ export function newtonD(
   ANN: bigint,
   gamma: bigint,
   x_unsorted: readonly [bigint, bigint],
-  K0_prev: bigint = 0n
+  K0_prev: bigint = 0n,
+  version: string | undefined = undefined
 ): bigint {
-  checkAGamma(ANN, gamma);
+  const b = bounds(gamma, version);
+  checkAGamma(ANN, gamma, b);
 
   const x = x_unsorted[0] < x_unsorted[1] ? [x_unsorted[1], x_unsorted[0]] : [...x_unsorted];
 
@@ -384,7 +431,7 @@ export function newtonD(
     if (diff * 10n ** 14n < maxInt(10n ** 16n, D)) {
       for (const _x of x) {
         const frac = (_x * E18) / D;
-        if (frac < 10n ** 16n / N_COINS || frac > 10n ** 20n / N_COINS) {
+        if (frac < b.xMin || frac > b.xMax) {
           fail("unsafe values x[i]");
         }
       }
@@ -450,7 +497,7 @@ export function calcTokenFee(
 /** The views' `_calc_D_ramp`: stored D, or newton_D while ramping. */
 function calcDRamp(params: TwocryptoOptimizedParams): bigint {
   if (params.isRamping) {
-    return newtonD(params.A, params.gamma, xp(params), 0n);
+    return newtonD(params.A, params.gamma, xp(params), 0n, params.version);
   }
   return params.D;
 }
@@ -475,7 +522,7 @@ function getDyNoFee(
   const balances: [bigint, bigint] = [params.balances[0], params.balances[1]];
   balances[i] += dx;
   const xpNew = scale(balances, params);
-  const [y] = getY(params.A, params.gamma, xpNew, D, j);
+  const [y] = getY(params.A, params.gamma, xpNew, D, j, params.version);
   let dy = xpNew[j] - y - 1n;
   if (dy < 0n) fail("dy underflow");
   xpNew[j] = y;
@@ -517,7 +564,7 @@ function calcDTokenNoFee(
   }
   const xpNew = scale(balances, params);
   const amountsp = scale(amounts, params);
-  const D = newtonD(params.A, params.gamma, xpNew, 0n);
+  const D = newtonD(params.A, params.gamma, xpNew, 0n, params.version);
   let d_token = (supply * D) / D0;
   if (deposit) {
     d_token -= supply;
@@ -584,7 +631,7 @@ export function calcWithdrawOneCoinWithFee(
     price_scale_i = E18 * params.precisions[0];
   }
 
-  const D0 = params.isRamping ? newtonD(params.A, params.gamma, xpNow, 0n) : params.D;
+  const D0 = params.isRamping ? newtonD(params.A, params.gamma, xpNow, 0n, params.version) : params.D;
   let D = D0;
 
   let f: bigint;
@@ -604,7 +651,7 @@ export function calcWithdrawOneCoinWithFee(
   const D_fee = (f * dD) / (2n * FEE_DENOMINATOR) + 1n;
   const approx_fee = (N_COINS * D_fee * xx[i]) / D;
   D -= dD - D_fee;
-  const [y] = getY(params.A, params.gamma, xpNow, D, i);
+  const [y] = getY(params.A, params.gamma, xpNow, D, i, params.version);
   if (y > xpNow[i]) fail("y exceeds balance");
   const dy = ((xpNow[i] - y) * E18) / price_scale_i;
   return [dy, approx_fee];
