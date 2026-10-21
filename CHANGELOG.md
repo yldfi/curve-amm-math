@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0](https://github.com/yldfi/curve-amm-math/compare/v1.7.0...v1.8.0) (2026-10-21)
+
+
+### Features
+
+* **rpc:** batchSize option for the pool readers ([da17329](https://github.com/yldfi/curve-amm-math/commit/da173294c8e334324f2f6b111d857bdaa7291fda))
+* **rpc:** detect a pool's module and read its state at one block ([0c7da54](https://github.com/yldfi/curve-amm-math/commit/0c7da5405724c4b018b0b4f1eb20a92869313e74))
+* **rpc:** detect oracle-rate main pools and self-LP base pools ([93fcb9c](https://github.com/yldfi/curve-amm-math/commit/93fcb9cae1d0a42440483560b3d6130a421b83d6))
+
+
+### Bug Fixes
+
+* **cryptoswap:** throw where CurveCryptoSwap2's newton_y asserts unsafe values ([a5cdf4d](https://github.com/yldfi/curve-amm-math/commit/a5cdf4de7c5be1285ad1b3e1d70b5d1651df692d))
+* **rpc:** say why StableSwap-NG pools with a failing rate oracle are unsupported ([9a6b3a4](https://github.com/yldfi/curve-amm-math/commit/9a6b3a4fda5ede00465c3a2eabb479ea32b94a8a))
+* **stableswap-exact:** throw where calc_withdraw_one_coin's dy underflows ([f095a1b](https://github.com/yldfi/curve-amm-math/commit/f095a1b1c8384bc4fd32feae18bb8924b8c83427))
+* **twocrypto-optimized:** use MATH v2.0.0's fixed safety bounds for v2.0.0 pools ([c351ecc](https://github.com/yldfi/curve-amm-math/commit/c351ecc3ef3bbb84d16be78522d69a6779a12f24))
+* **twocrypto-stableswap:** apply newton_D's !balance assert to v3.0.0 only ([1b44ae6](https://github.com/yldfi/curve-amm-math/commit/1b44ae61d409e15de8d3d6c3ec7362e233a834f5))
+
 ## [1.7.0](https://github.com/yldfi/curve-amm-math/compare/v1.6.0...v1.7.0) (2026-10-20)
 
 
