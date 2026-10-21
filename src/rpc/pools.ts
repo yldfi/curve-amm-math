@@ -25,6 +25,8 @@ export type StableRateSource =
   | { kind: "reth" }
   /** ETH/aETH: coin 1 is ankr aETH, rate `1e36 / ratio()` */
   | { kind: "aeth" }
+  /** Coin 1's rate is `ORACLE.latestAnswer()` (ETH/wstETH on L2s) */
+  | { kind: "oracle"; oracle: string }
   /** Metapool: `[10^(36 - decimals0), base virtual price]` */
   | { kind: "metapool" }
   /** RAI3CRV: `[snappedRedemptionPrice() / 1e9, base virtual price]` */
@@ -201,6 +203,8 @@ const SIG = {
   donationSharesMaxRatio: "0x3d2699f2",
   minter: "0x07546172",
   BASE_POOL: "0x71511a5e",
+  oracle: "0x7dc0d1d0",
+  latestAnswer: "0x50d25bcd",
   getPoolFromLpToken: "0xbdf475c3",
   getDyUnderlyingI: "0x07211ef7",
 } as const;
@@ -595,6 +599,19 @@ async function detectWith(ctx: Ctx, poolIn: string, lpTokenIn?: string): Promise
       ...(NO_SUBTRACT_ONE.includes(pool) && { getDySubtractOne: false }),
     };
   }
+  if (nCoins === 2) {
+    const [oracleRaw] = await calls(ctx, [{ to: pool, data: SIG.oracle }]);
+    const oracle = word(oracleRaw);
+    if (oracle !== null && oracle > 0n && oracle < 1n << 160n) {
+      return {
+        ...stable,
+        variant: "legacy",
+        rates: { kind: "oracle", oracle: address(oracleRaw)! },
+        getDySubtractOne: false,
+        hasCalcWithdrawOneCoin,
+      };
+    }
+  }
   if (nCoins === 2 && coins[0].toLowerCase() === ETH_PLACEHOLDER) {
     if (rateProbe[4 + 2] !== null) {
       return { ...stable, variant: "legacy", rates: { kind: "reth" }, getDySubtractOne: false, hasCalcWithdrawOneCoin };
@@ -613,8 +630,9 @@ async function detectWith(ctx: Ctx, poolIn: string, lpTokenIn?: string): Promise
 
 /**
  * Old factory metapools have no `base_pool()`: when `get_dy_underlying`
- * answers and the last coin is a Curve LP token (its `minter()`, or the
- * Ethereum MetaRegistry's `get_pool_from_lp_token`), that pool is the base.
+ * answers and the last coin is a Curve LP token (its `minter()`, the
+ * Ethereum MetaRegistry's `get_pool_from_lp_token`, or the coin itself when
+ * the base pool is its own LP token), that pool is the base.
  */
 async function impliedBasePool(ctx: Ctx, pool: string, lastCoin: string): Promise<string | undefined> {
   const [minterRaw, registryRaw, underlyingRaw] = await calls(ctx, [
@@ -623,9 +641,11 @@ async function impliedBasePool(ctx: Ctx, pool: string, lastCoin: string): Promis
     { to: pool, data: arg(SIG.getDyUnderlyingI, 1, 0, 10n ** 6n) },
   ]);
   if (underlyingRaw === null) return undefined;
-  const found = [address(minterRaw), address(registryRaw)].find((a) => a && a !== ZERO_ADDRESS);
-  if (!found) return undefined;
-  const minter = found;
+  // a base pool that is its own LP token (Arbitrum 2pool) is the last coin itself
+  const found = [address(minterRaw), address(registryRaw), lastCoin.toLowerCase()].find(
+    (a) => a && a !== ZERO_ADDRESS
+  );
+  const minter = found!;
   const [aRaw] = await calls(ctx, [{ to: minter, data: SIG.A }]);
   return aRaw === null ? undefined : minter;
 }
@@ -726,6 +746,8 @@ async function readStable(ctx: Ctx, d: StableswapDescriptor): Promise<Stableswap
     if (src.kind === "lending") rates = await lendingRates(ctx, d, coins, src.tokens, rates);
     else if (src.kind === "reth") {
       rates[1] = need((await calls(ctx, [{ to: coins[1], data: SIG.getExchangeRate }]))[0], "getExchangeRate()", coins[1]);
+    } else if (src.kind === "oracle") {
+      rates[1] = need((await calls(ctx, [{ to: src.oracle, data: SIG.latestAnswer }]))[0], "latestAnswer()", src.oracle);
     } else if (src.kind === "aeth") {
       rates[1] = stableswapExact.ankrAethRate(need((await calls(ctx, [{ to: coins[1], data: SIG.ratio }]))[0], "ratio()", coins[1]));
     }
