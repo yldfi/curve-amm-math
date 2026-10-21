@@ -10,7 +10,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features
 
-* detect any Curve pool, read it at one block, and quote it; parity sweep across Ethereum, Base and Arbitrum ([8e8345d](https://github.com/yldfi/curve-amm-math/commit/8e8345dffa09a98f34db5c7e53a3bdb79661ba7d))
 * **rpc:** batchSize option for the pool readers ([da17329](https://github.com/yldfi/curve-amm-math/commit/da173294c8e334324f2f6b111d857bdaa7291fda))
 * **rpc:** detect a pool's module and read its state at one block ([0c7da54](https://github.com/yldfi/curve-amm-math/commit/0c7da5405724c4b018b0b4f1eb20a92869313e74))
 * **rpc:** detect oracle-rate main pools and self-LP base pools ([93fcb9c](https://github.com/yldfi/curve-amm-math/commit/93fcb9cae1d0a42440483560b3d6130a421b83d6))
