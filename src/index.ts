@@ -137,6 +137,10 @@ export type {
 export * as tricrv from "./tricrv";
 export type { TriCrvPoolParams } from "./tricrv";
 
+// One quote interface over every exact module (state from rpc.readPoolState)
+export * as pools from "./pools";
+export type { PoolState, PoolFamily } from "./pools";
+
 // Re-export commonly used constants
 export {
   A_PRECISION,
