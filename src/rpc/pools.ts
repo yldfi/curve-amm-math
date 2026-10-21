@@ -12,6 +12,8 @@ import * as twocryptoOptimized from "../twocrypto-optimized";
 import * as twocryptoStableswap from "../twocrypto-stableswap";
 import type { BatchRpcOptions, RpcCall } from "./index";
 import { encodeUint256, getTricryptoLegacyState } from "./index";
+import type { CurveRpc, RpcTarget } from "./transport";
+import { throwIfAborted } from "./transport";
 
 /** Where a StableSwap pool's `rates` come from */
 export type StableRateSource =
@@ -101,10 +103,19 @@ export type PoolDescriptor =
 export interface PoolReadOptions {
   /** Block to read at (default "latest", resolved once so every read uses the same block) */
   blockTag?: BatchRpcOptions["blockTag"];
-  /** Timeout in milliseconds for each RPC request (default 30000) */
+  /**
+   * The block to read at, already resolved: skips the `eth_getBlockByNumber`
+   * lookup (for callers that pin a block themselves). The timestamp is used
+   * for ramps and oracle state. A `blockTag` given with it must name the same
+   * block number.
+   */
+  block?: { number: bigint | number; timestamp: bigint | number };
+  /** Timeout in milliseconds for each RPC request to an RPC URL (default 30000; a transport times out on its own) */
   timeout?: number;
-  /** eth_calls per JSON-RPC batch (default 100; some providers accept fewer) */
+  /** eth_calls per JSON-RPC batch, or per `CurveRpc.call` (default 100; some providers accept fewer) */
   batchSize?: number;
+  /** Aborts the reads: the URL path stops retrying and rejects with the signal's reason; a transport receives it */
+  signal?: AbortSignal;
   /**
    * LP token, for StableSwap pools that are not their own LP token and have
    * no `lp_token()` / `token()` view (3pool, compound, …)
@@ -148,7 +159,7 @@ async function sha256Hex(hex: string): Promise<string> {
 
 /** The Ethereum MATH address whose code `math` has, or `math` itself */
 async function canonicalMath(ctx: Ctx, math: string): Promise<string> {
-  const code = (await rpcRequest(ctx.rpcUrl, "eth_getCode", [math, ctx.block], ctx.timeout)) as string;
+  const code = (await request(ctx, "eth_getCode", [math, ctx.block])) as string;
   if (!code || code === "0x") return math;
   return MATH_BY_CODE_SHA256[await sha256Hex(code)] ?? math;
 }
@@ -214,18 +225,23 @@ const SIG = {
 // ----------------------------------------------------------------------------
 
 interface Ctx {
-  rpcUrl: string;
+  rpc: CurveRpc;
+  /** What the caller passed, for the `rpc` helpers this module delegates to */
+  source: RpcTarget;
   /** Hex block number every read is pinned to */
   block: string;
   blockNumber: bigint;
   blockTimestamp: bigint;
   timeout: number;
   batchSize: number;
+  signal?: AbortSignal;
 }
 
-async function rpcRequestRaw(rpcUrl: string, body: unknown, timeout: number): Promise<unknown> {
+async function rpcRequestRaw(rpcUrl: string, body: unknown, timeout: number, signal?: AbortSignal): Promise<unknown> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
+  const onAbort = () => controller.abort();
+  signal?.addEventListener("abort", onAbort);
   try {
     const res = await fetch(rpcUrl, {
       method: "POST",
@@ -237,56 +253,114 @@ async function rpcRequestRaw(rpcUrl: string, body: unknown, timeout: number): Pr
     return await res.json();
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
   }
 }
 
-async function rpcRequest(rpcUrl: string, method: string, params: unknown[], timeout: number): Promise<unknown> {
+/** Run `attempt` up to 4 times with backoff; an abort is thrown at once, never retried */
+async function withRetries<T>(signal: AbortSignal | undefined, attempt: () => Promise<T>): Promise<T> {
   let last: unknown;
-  for (let attempt = 0; attempt < 4; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
+  for (let k = 0; k < 4; k++) {
+    throwIfAborted(signal);
+    if (k > 0) await new Promise((r) => setTimeout(r, 500 * 2 ** k));
+    throwIfAborted(signal);
     try {
-      const json = (await rpcRequestRaw(rpcUrl, { jsonrpc: "2.0", id: 1, method, params }, timeout)) as {
-        result?: unknown;
-        error?: { message: string };
-      };
-      if (json.error) throw new Error(`${method} failed: ${json.error.message}`);
-      return json.result;
+      return await attempt();
     } catch (e) {
+      throwIfAborted(signal);
       last = e;
     }
   }
   throw last;
 }
 
-async function context(rpcUrl: string, options: PoolReadOptions): Promise<Ctx> {
+const REVERT = /revert|invalid opcode|out of gas|stack underflow|bad instruction|vm exception/i;
+
+/**
+ * The RPC URL path as a {@link CurveRpc}: one JSON-RPC batch per `call`,
+ * reverts (code 3 or a revert message) read as null, and every other error
+ * retried, then thrown, so a failed read is never mistaken for a missing view.
+ */
+function urlRpc(rpcUrl: string, timeout: number): CurveRpc {
+  return {
+    request: (method, params, { signal }) =>
+      withRetries(signal, async () => {
+        const json = (await rpcRequestRaw(rpcUrl, { jsonrpc: "2.0", id: 1, method, params }, timeout, signal)) as {
+          result?: unknown;
+          error?: { message: string };
+        };
+        if (json.error) throw new Error(`${method} failed: ${json.error.message}`);
+        return json.result;
+      }),
+    call: (list, { blockTag, signal }) => {
+      const body = list.map((c, id) => ({ jsonrpc: "2.0", id, method: "eth_call", params: [c, blockTag] }));
+      return withRetries(signal, async () => {
+        const res = (await rpcRequestRaw(rpcUrl, body, timeout, signal)) as {
+          id: number;
+          result?: string;
+          error?: { code?: number; message?: string };
+        }[];
+        if (!Array.isArray(res)) throw new Error("batch eth_call: non-array response");
+        const byId = new Map(res.map((r) => [r.id, r]));
+        return list.map((c, id) => {
+          const r = byId.get(id);
+          if (!r) throw new Error(`batch eth_call: no response for ${c.to}`);
+          if (r.error) {
+            if (r.error.code === 3 || REVERT.test(r.error.message ?? "")) return null;
+            throw new Error(`eth_call to ${c.to} failed: ${r.error.message}`);
+          }
+          return r.result && r.result !== "0x" ? r.result : null;
+        });
+      });
+    },
+  };
+}
+
+function request(ctx: Ctx, method: string, params: unknown[]): Promise<unknown> {
+  throwIfAborted(ctx.signal);
+  return ctx.rpc.request(method, params, { signal: ctx.signal });
+}
+
+async function context(source: RpcTarget, options: PoolReadOptions): Promise<Ctx> {
   const timeout = options.timeout ?? 30000;
+  const rpc = typeof source === "string" ? urlRpc(source, timeout) : source;
   let tag: string;
   const bt = options.blockTag;
   if (bt === undefined) tag = "latest";
   else if (typeof bt === "string") tag = bt;
   else tag = "0x" + BigInt(bt).toString(16);
-  const block = (await rpcRequest(rpcUrl, "eth_getBlockByNumber", [tag, false], timeout)) as {
-    number: string;
-    timestamp: string;
-  } | null;
-  if (!block) throw new Error(`block ${tag} not found`);
+  let block: { number: string; timestamp: string } | null;
+  if (options.block) {
+    const number = BigInt(options.block.number);
+    if (bt !== undefined && !(/^0x[0-9a-f]+$/i.test(tag) && BigInt(tag) === number)) {
+      throw new Error(`blockTag ${tag} does not match block ${number}`);
+    }
+    block = { number: "0x" + number.toString(16), timestamp: "0x" + BigInt(options.block.timestamp).toString(16) };
+  } else {
+    throwIfAborted(options.signal);
+    block = (await rpc.request("eth_getBlockByNumber", [tag, false], { signal: options.signal })) as {
+      number: string;
+      timestamp: string;
+    } | null;
+    if (!block) throw new Error(`block ${tag} not found`);
+  }
   return {
-    rpcUrl,
+    rpc,
+    source,
     block: block.number,
     blockNumber: BigInt(block.number),
     blockTimestamp: BigInt(block.timestamp),
     timeout,
     batchSize: options.batchSize ?? 100,
+    signal: options.signal,
   };
 }
-
-const REVERT = /revert|invalid opcode|out of gas|stack underflow|bad instruction|vm exception/i;
 
 /**
  * eth_call each [to, data] at the context block: null when the call reverts
  * or returns nothing. Any other error (rate limit, pruned state, transport)
- * is retried, then thrown, so a failed read is never mistaken for a missing
- * view.
+ * rejects (after retries, for an RPC URL), so a failed read is never mistaken
+ * for a missing view.
  */
 async function calls(ctx: Ctx, list: RpcCall[]): Promise<(string | null)[]> {
   const out: (string | null)[] = [];
@@ -295,32 +369,12 @@ async function calls(ctx: Ctx, list: RpcCall[]): Promise<(string | null)[]> {
 }
 
 async function chunk(ctx: Ctx, list: RpcCall[]): Promise<(string | null)[]> {
-  const body = list.map((c, id) => ({ jsonrpc: "2.0", id, method: "eth_call", params: [c, ctx.block] }));
-  let last: unknown;
-  for (let attempt = 0; attempt < 4; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
-    try {
-      const res = (await rpcRequestRaw(ctx.rpcUrl, body, ctx.timeout)) as {
-        id: number;
-        result?: string;
-        error?: { code?: number; message?: string };
-      }[];
-      if (!Array.isArray(res)) throw new Error("batch eth_call: non-array response");
-      const byId = new Map(res.map((r) => [r.id, r]));
-      return list.map((c, id) => {
-        const r = byId.get(id);
-        if (!r) throw new Error(`batch eth_call: no response for ${c.to}`);
-        if (r.error) {
-          if (r.error.code === 3 || REVERT.test(r.error.message ?? "")) return null;
-          throw new Error(`eth_call to ${c.to} failed: ${r.error.message}`);
-        }
-        return r.result && r.result !== "0x" ? r.result : null;
-      });
-    } catch (e) {
-      last = e;
-    }
+  throwIfAborted(ctx.signal);
+  const res = await ctx.rpc.call(list, { blockTag: ctx.block, signal: ctx.signal });
+  if (res.length !== list.length) {
+    throw new Error(`eth_call: ${res.length} results for ${list.length} calls`);
   }
-  throw last;
+  return res.map((r) => (r && r !== "0x" ? r : null));
 }
 
 function word(raw: string | null, index = 0): bigint | null {
@@ -367,7 +421,7 @@ const arg = (selector: string, ...args: (bigint | number)[]) =>
   selector + args.map((a) => encodeUint256(BigInt(a))).join("");
 
 async function implementationOf(ctx: Ctx, pool: string): Promise<string | undefined> {
-  const code = ((await rpcRequest(ctx.rpcUrl, "eth_getCode", [pool, ctx.block], ctx.timeout)) as string) ?? "0x";
+  const code = ((await request(ctx, "eth_getCode", [pool, ctx.block])) as string) ?? "0x";
   // EIP-1167 (363d3d373d3d3d363d73 <impl> 5af4…) or Vyper's create_forwarder_to
   // (366000600037611000600036600073 <impl> 5af4…)
   const m =
@@ -418,11 +472,11 @@ async function probeCoins(ctx: Ctx, pool: string): Promise<{ coins: string[]; in
  * `{ family: "unsupported", reason }` rather than a guess.
  */
 export async function detectPool(
-  rpcUrl: string,
+  rpc: RpcTarget,
   pool: string,
   options: PoolReadOptions = {}
 ): Promise<PoolDescriptor> {
-  return detectWith(await context(rpcUrl, options), pool, options.lpToken);
+  return detectWith(await context(rpc, options), pool, options.lpToken);
 }
 
 async function detectWith(ctx: Ctx, poolIn: string, lpTokenIn?: string): Promise<PoolDescriptor> {
@@ -665,11 +719,11 @@ async function impliedBasePool(ctx: Ctx, pool: string, lastCoin: string): Promis
  * @throws Error for unsupported pools (with the detector's reason) and failed reads
  */
 export async function readPoolState(
-  rpcUrl: string,
+  rpc: RpcTarget,
   pool: string,
   options: PoolReadOptions & { descriptor?: PoolDescriptor } = {}
 ): Promise<PoolState> {
-  const ctx = await context(rpcUrl, options);
+  const ctx = await context(rpc, options);
   const d = options.descriptor ?? (await detectWith(ctx, pool, options.lpToken));
   return readWith(ctx, d);
 }
@@ -681,7 +735,11 @@ async function readWith(ctx: Ctx, d: PoolDescriptor): Promise<PoolState> {
     case "stableswap":
       return readStable(ctx, d);
     case "tricryptoLegacy": {
-      const state = await getTricryptoLegacyState(ctx.rpcUrl, d.pool, { blockTag: ctx.block, timeout: ctx.timeout });
+      const state = await getTricryptoLegacyState(ctx.source, d.pool, {
+        blockTag: ctx.block,
+        timeout: ctx.timeout,
+        signal: ctx.signal,
+      });
       return { family: "tricryptoLegacy", pool: d.pool, state };
     }
     case "cryptoswap":

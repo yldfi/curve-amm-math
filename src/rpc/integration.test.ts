@@ -23,6 +23,9 @@ import {
   getBlockNumber,
   getLlamaLendAmmParams,
   getTricryptoLegacyState,
+  detectPool,
+  readPoolState,
+  eip1193Rpc,
 } from "./index";
 import * as tricryptoLegacy from "../tricrypto-legacy";
 import legacyCases from "../__fixtures__/legacy-tricrypto-cases.json";
@@ -1230,4 +1233,35 @@ describeIf("Exact Precision Tests (stableswap-exact)", () => {
       console.log(`getDxExact: wanted ${desiredDy} USDC, calculated dx=${calculatedDx}, got dy=${actualDy}, diff=${diff}`);
     });
   });
+});
+
+describeIf("CurveRpc transport vs RPC URL (same block)", () => {
+  // A minimal EIP-1193 provider over the same URL: one request per eth_call
+  const provider = {
+    async request({ method, params }: { method: string; params?: unknown }) {
+      const res = await fetch(RPC_URL!, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+      });
+      const json = (await res.json()) as { result?: unknown; error?: { code: number; message: string } };
+      if (json.error) throw Object.assign(new Error(json.error.message), json.error);
+      return json.result;
+    },
+  };
+  const plain = (x: unknown) => JSON.parse(JSON.stringify(x, (_, v) => (typeof v === "bigint" ? `${v}n` : v)));
+
+  for (const [name, pool] of [
+    ["3pool", POOLS.THREEPOOL],
+    ["crvUSD/USDC", POOLS.CRVUSD_USDC],
+    ["Tricrypto USDC", POOLS.TRICRYPTO_USDC],
+  ] as const) {
+    it(`${name}: identical descriptor and state`, async () => {
+      const blockTag = await getBlockNumber(RPC_URL!);
+      const opts = { blockTag, lpToken: name === "3pool" ? "0x6c3f90f043a72fa612cbac8115ee7e52bde6e490" : undefined };
+      const rpc = eip1193Rpc(provider);
+      expect(plain(await detectPool(rpc, pool, opts))).toEqual(plain(await detectPool(RPC_URL!, pool, opts)));
+      expect(plain(await readPoolState(rpc, pool, opts))).toEqual(plain(await readPoolState(RPC_URL!, pool, opts)));
+    }, 60000);
+  }
 });
