@@ -96,6 +96,11 @@ function pair<T>(xs: readonly T[], name: string): [T, T] {
   return [xs[0], xs[1]];
 }
 
+function triple<T>(xs: readonly T[], name: string): [T, T, T] {
+  if (xs.length !== 3) throw new Error(`pools.${name}: expected 3 amounts (got ${xs.length})`);
+  return [xs[0], xs[1], xs[2]];
+}
+
 /** The pool's `get_dy(i, j, dx)` */
 export function getDy(s: PoolState, i: number, j: number, dx: bigint): bigint {
   switch (s.family) {
@@ -156,8 +161,9 @@ export function calcWithdrawOneCoin(s: PoolState, tokenAmount: bigint, i: number
 }
 
 /**
- * The pool's `calc_token_amount(amounts, isDeposit)`. Classic crypto pools
- * have a deposit-only view; `isDeposit: false` throws for them.
+ * The pool's `calc_token_amount(amounts, isDeposit)`. Classic 2-coin
+ * CurveCryptoSwap2 pools have a deposit-only view; `isDeposit: false` throws
+ * for them.
  */
 export function calcTokenAmount(s: PoolState, amounts: readonly bigint[], isDeposit: boolean): bigint {
   switch (s.family) {
@@ -167,7 +173,7 @@ export function calcTokenAmount(s: PoolState, amounts: readonly bigint[], isDepo
       if (!isDeposit) throw new Error("pools.calcTokenAmount: CurveCryptoSwap2 quotes deposits only");
       return cryptoswap.calcTokenAmount(s.params, pair(amounts, "calcTokenAmount"), s.totalSupply);
     case "tricryptoLegacy":
-      throw new Error("pools.calcTokenAmount: not ported for tricrypto2 / tricrypto v1");
+      return tricryptoLegacy.calcTokenAmount(s.state, triple(amounts, "calcTokenAmount"), isDeposit);
     case "tricryptoNg":
       return tricryptoNg.calcTokenAmount(s.params, amounts, isDeposit);
     case "twocryptoOptimized":

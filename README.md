@@ -584,6 +584,7 @@ const usdtOut = tricryptoLegacy.calcWithdrawOneCoin(state, 10n ** 18n, 0);
 | `getDy(state, i, j, dx)` | `get_dy` |
 | `getDx(state, i, j, dy)` | Smallest input whose `get_dy` is at least `dy` (neither pool has `get_dx`) |
 | `calcWithdrawOneCoin(state, tokenAmount, i)` | `calc_withdraw_one_coin` |
+| `calcTokenAmount(state, amounts, isDeposit)` | `calc_token_amount` (deposits and withdrawals) |
 | `getVirtualPrice(state)` | `get_virtual_price` |
 
 The state is `{ variant, params, totalSupply }`, where `params` is a

@@ -54,6 +54,15 @@ export function calcWithdrawOneCoin(
   return cryptoswap.calcRemoveLiquidityOneCoin3(params, tokenAmount, i, state.totalSupply).dy;
 }
 
+/** `calc_token_amount(amounts, is_deposit)` (both pools quote deposits and withdrawals) */
+export function calcTokenAmount(
+  state: TricryptoLegacyState,
+  amounts: [bigint, bigint, bigint],
+  isDeposit: boolean
+): bigint {
+  return cryptoswap.calcTokenAmount3(state.params, amounts, state.totalSupply, isDeposit);
+}
+
 /** `get_virtual_price()` */
 export function getVirtualPrice(state: TricryptoLegacyState): bigint {
   return cryptoswap.getVirtualPrice3(state.params, state.totalSupply);
