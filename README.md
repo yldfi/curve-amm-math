@@ -254,6 +254,39 @@ const dy = stableswapExact.getDyExact(0, 1, dx, {
 });
 ```
 
+### Any Pool: Detect, Read, Quote
+
+`rpc.detectPool` works out which exact module quotes a pool, with the flags
+that module needs (variant, `calcTokenAmountFee`, rate sources, base pool,
+supported MATH/version), from the pool's own views. `rpc.readPoolState` reads
+its state at one block, and the `pools` functions quote it:
+
+```typescript
+import { pools } from '@yldfi/curve-amm-math';
+import { detectPool, readPoolState } from '@yldfi/curve-amm-math/rpc';
+
+const descriptor = await detectPool(rpcUrl, poolAddress, { blockTag });
+// { family: "stableswap", variant: "plain", calcTokenAmountFee: false, ... }
+// or { family: "unsupported", reason: "..." }
+
+const state = await readPoolState(rpcUrl, poolAddress, { blockTag, descriptor });
+const dy = pools.getDy(state, 0, 1, dx);
+const lp = pools.calcTokenAmount(state, [dx, 0n], true);
+const out = pools.calcWithdrawOneCoin(state, lpAmount, 0);
+const vp = pools.getVirtualPrice(state);
+const dyU = pools.getDyUnderlying(state, 1, 0, dx); // metapools
+```
+
+`state.family` names the module (`stableswap`, `cryptoswap`, `tricryptoLegacy`,
+`tricryptoNg`, `twocryptoOptimized`, `twocryptoStableswap`) and `state.params`
+is that module's own params, so a state can also be passed to the module
+directly. Every read is pinned to one block (`blockTag`, default the latest
+block). Pass `lpToken` for StableSwap pools that are not their own LP token and
+have no `lp_token()` / `token()` view (3pool, compound). Pools the detector
+cannot place, such as a Twocrypto version or MATH no module ports, come back as
+`unsupported` with a reason; a dynamic Twocrypto `POLICY` reads fine but its
+quotes throw until you pass `policyFee`.
+
 ### RPC Utilities (optional)
 
 ```typescript
@@ -643,6 +676,8 @@ with `floorRatio`.
 | `getCryptoSwapParams(rpcUrl, pool, options?)` | Fetch CryptoSwap 2-coin params (`precisions`, `blockTag`) |
 | `getTricryptoParams(rpcUrl, pool, options?)` | Fetch Tricrypto 3-coin params (`precisions`, `blockTag`) |
 | `getTricryptoLegacyState(rpcUrl, pool, options?)` | Fetch a tricrypto2 / tricrypto v1 state (`blockTag`, precisions, totalSupply) |
+| `detectPool(rpcUrl, pool, options?)` | Which module and flags quote the pool (`blockTag`, `lpToken`) |
+| `readPoolState(rpcUrl, pool, options?)` | The pool's state at one block, for the `pools` functions |
 | `getOnChainDy(rpcUrl, pool, i, j, dx, factory?)` | On-chain get_dy for verification |
 | `getStoredRates(rpcUrl, pool, options?)` | Fetch dynamic rates for oracle/ERC4626 tokens |
 | `getNCoins(rpcUrl, pool, options?)` | Get number of coins in pool |
@@ -659,6 +694,25 @@ Ethereum blocks, and the tests require every value to match to the wei. The
 fixtures cover each Curve API registry family, pools captured mid A/gamma ramp,
 active donation protection, and the lending pools at blocks when they were
 active. The `stableswap` module is approximate (~0.01%).
+
+`scripts/parity/sweep.mjs` checks the library against live pools: every Curve
+pool with TVL on a chain, detected and read with `rpc.detectPool` /
+`rpc.readPoolState` at one block, each ported view (`get_dy`,
+`get_dy_underlying`, `calc_token_amount` both ways, `calc_withdraw_one_coin`,
+`get_virtual_price`) compared with the pool's own on a size ladder plus seeded
+random sizes. Results (October 2026):
+
+| Chain | Block | Pools exact | TVL exact |
+|-------|-------|-------------|-----------|
+| Ethereum | 26236847 | 1,223 / 1,300 | $1,299.0M of $1,299.0M |
+| Base | 52876659 | 162 / 172 | $15.97M of $15.97M |
+| Arbitrum | 516761757 | 205 / 221 | $11.05M of $11.05M |
+
+Most pools that are not exact are empty or dead pools whose own views revert
+(the library still quotes, e.g. `get_virtual_price` of an empty crypto pool).
+The rest are pools with a dynamic Twocrypto `POLICY` (exact with `policyFee`),
+StableSwap-NG pools whose `stored_rates()` reverts, and a few pools with a coin
+that has no `decimals()`.
 
 For production use with financial consequences, we still recommend:
 
