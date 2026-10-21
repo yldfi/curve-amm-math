@@ -567,7 +567,11 @@ async function detectWith(ctx: Ctx, poolIn: string, lpTokenIn?: string): Promise
       ? { ...stable, variant: "plain", rates, calcTokenAmountFee: false, hasCalcWithdrawOneCoin: true }
       : { ...stable, variant: "legacy", rates, hasCalcWithdrawOneCoin: true };
   }
-  if (version && /^v7\./.test(version)) return unsupported(`StableSwap-NG ${version} without stored_rates()`);
+  if (version && /^v7\./.test(version)) {
+    // NG pools always have stored_rates(); it reverts when a coin's rate
+    // oracle does (stale or broken), and then so do all the pool's views
+    return unsupported(`StableSwap-NG ${version}: stored_rates() reverts (rate oracle failing; the pool's own views revert too)`);
+  }
 
   // Main-registry pools (full contracts; the newer ones report v5/v6 versions)
   if (offpegRaw !== null) {

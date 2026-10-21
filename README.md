@@ -714,8 +714,9 @@ views revert on both sides (39 / 5 / 14 such pools, about $2.8K TVL in all), or
 only the pool's revert (the library still quotes `get_virtual_price` of an
 empty crypto pool).
 The rest are pools with a dynamic Twocrypto `POLICY` (exact with `policyFee`),
-StableSwap-NG pools whose `stored_rates()` reverts, and a few pools with a coin
-that has no `decimals()`.
+StableSwap-NG pools whose rate oracle is failing (`stored_rates()` and every
+view of the pool revert, so the detector reports them `unsupported`), and a few
+pools with a coin that has no `decimals()`.
 
 For production use with financial consequences, we still recommend:
 

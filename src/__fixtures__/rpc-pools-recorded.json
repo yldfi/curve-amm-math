@@ -508,7 +508,7 @@
     "pool": "0x0dda89a44bacaaf11a2c3183e4b44dff6f13f2e6",
     "version": "v7.0.0",
     "family": "unsupported",
-    "reason": "StableSwap-NG v7.0.0 without stored_rates()"
+    "reason": "StableSwap-NG v7.0.0: stored_rates() reverts (rate oracle failing; the pool's own views revert too)"
    }
   }
  ],
