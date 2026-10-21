@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0](https://github.com/yldfi/curve-amm-math/compare/v1.8.0...v1.9.0) (2026-10-21)
+
+
+### Features
+
+* **rpc:** accept a caller-supplied CurveRpc transport in place of an RPC URL ([8aacb14](https://github.com/yldfi/curve-amm-math/commit/8aacb143484a0147b8bf39c8430c1c724fec9ddd))
+* **rpc:** accept a caller-supplied CurveRpc transport in place of an RPC URL ([883f0fd](https://github.com/yldfi/curve-amm-math/commit/883f0fd88773a610b6c6526cc0ec19a09110413a))
+* **rpc:** let detectPool and readPoolState take a caller-pinned block ([3fc2525](https://github.com/yldfi/curve-amm-math/commit/3fc25257c687dbf19c9380a8f387a50049ceca1e))
+
+
+### Bug Fixes
+
+* close the three pools parity gaps from the 1.8.0 mainnet sweep ([ac9c9ca](https://github.com/yldfi/curve-amm-math/commit/ac9c9cacbcd165f14c015029edc86ba64b9bfc7b))
+* close the three pools parity gaps from the 1.8.0 mainnet sweep ([e2c383e](https://github.com/yldfi/curve-amm-math/commit/e2c383e5c8d6dd4f76af58d8c199916281eee647))
+
 ## [1.8.0](https://github.com/yldfi/curve-amm-math/compare/v1.7.0...v1.8.0) (2026-10-21)
 
 
