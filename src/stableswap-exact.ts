@@ -1046,7 +1046,8 @@ export function calcWithdrawOneCoinExact(
   });
 
   let dy = xpReduced[i] - getYDVariant(amp, i, xpReduced, D1, ampPrecision);
-  if (dy <= 0n) return [0n, 0n];
+  // the contract's unsigned `dy - 1` reverts here
+  if (dy <= 0n) throw new Error("calcWithdrawOneCoinExact: dy underflows (the pool reverts)");
   const dy0 = ((xp[i] - newY) * PRECISION) / rates[i];
   dy = ((dy - 1n) * PRECISION) / rates[i];
   return [dy, dy0 - dy];
