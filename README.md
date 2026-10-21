@@ -533,7 +533,10 @@ CurveTwocryptoOptimized v2.1.0/v2.1.1 (math `0x1Fd8Af16…F4A1`) and is verified
 for v2.0.0 (math `0x2005995a…64Df`). Each exposes
 `assertSupportedImplementation(version, mathAddress)`; other versions must not
 be quoted with them. Twocrypto pools whose MATH is StableswapMath (v2.1.0d,
-v3.0.0) use `twocryptoNg`.
+v3.0.0) use `twocryptoNg`. Set `twocryptoOptimized` params' `version` from
+`pool.version()`: MATH v2.0.0's safety asserts use fixed bounds (and
+MAX_GAMMA = 2e15) where v2.1.0 scales them with gamma, so near those bounds
+the two revert on different states.
 
 | Function | Description |
 |----------|-------------|

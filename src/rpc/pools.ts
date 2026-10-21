@@ -919,7 +919,7 @@ async function readCryptoNg(ctx: Ctx, d: CryptoNgDescriptor): Promise<PoolState>
     return {
       family: "twocryptoOptimized",
       pool: p,
-      params: { ...two, isRamping: futureAGammaTime > ctx.blockTimestamp },
+      params: { ...two, isRamping: futureAGammaTime > ctx.blockTimestamp, version: d.version },
     };
   }
   const shares = word(raw[10]);

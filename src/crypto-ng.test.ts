@@ -157,6 +157,7 @@ describe("Twocrypto-NG (CurveTwocryptoOptimized) on-chain views", () => {
         balances: big(c.balances) as [bigint, bigint],
         precisions: big(c.precisions) as [bigint, bigint],
         totalSupply: BigInt(c.totalSupply),
+        version: c.version,
       };
 
       it("is the supported implementation", () => {
@@ -207,6 +208,19 @@ describe("Twocrypto-NG (CurveTwocryptoOptimized) on-chain views", () => {
 
   it("rejects other implementations", () => {
     expect(() => twocryptoOptimized.assertSupportedImplementation("v3.0.0")).toThrow("unsupported");
+  });
+
+  it("MATH v2.0.0 uses fixed safety bounds, v2.1.0 gamma-scaled ones", () => {
+    const [A, gamma, D] = [400000n, 145000000000000n, 10n ** 24n];
+    // K0_i = 2e18 * x_j / D = 1.6e16: inside v2.1.0's [1e16, 1e20], below v2.0.0's 2e16
+    const x: [bigint, bigint] = [D, 8n * 10n ** 21n];
+    expect(twocryptoOptimized.newtonY(A, gamma, x, D, 0)).toBeGreaterThan(0n);
+    expect(() => twocryptoOptimized.newtonY(A, gamma, x, D, 0, "v2.0.0")).toThrow("unsafe values x[i]");
+    expect(() => twocryptoOptimized.getY(A, gamma, x, D, 0, "v2.0.0")).toThrow("unsafe values x[i]");
+    // v2.0.0's MAX_GAMMA is 2e15
+    const even: [bigint, bigint] = [D / 2n, D / 2n];
+    expect(twocryptoOptimized.newtonY(A, 10n ** 16n, even, D, 0)).toBeGreaterThan(0n);
+    expect(() => twocryptoOptimized.newtonY(A, 10n ** 16n, even, D, 0, "v2.0.0")).toThrow("unsafe values gamma");
     expect(() =>
       twocryptoOptimized.assertSupportedImplementation(
         "v2.1.0",
