@@ -1107,8 +1107,8 @@ describe("Parameter Boundary Tests", () => {
         balances: [1000n * 10n ** 18n, 10000000n * 10n ** 18n],
         precisions: [1n, 1n],
       };
-      const dy = cryptoswap.getDy(params, 0, 1, 100n * 10n ** 18n);
-      expect(dy).toBeGreaterThanOrEqual(0n);
+      // Scaled balances this far from D fail newton_y's safety asserts, as on chain
+      expect(() => cryptoswap.getDy(params, 0, 1, 100n * 10n ** 18n)).toThrow("unsafe value");
     });
 
     it("Tricrypto should handle varied priceScales", () => {
