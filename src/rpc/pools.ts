@@ -103,6 +103,13 @@ export type PoolDescriptor =
 export interface PoolReadOptions {
   /** Block to read at (default "latest", resolved once so every read uses the same block) */
   blockTag?: BatchRpcOptions["blockTag"];
+  /**
+   * The block to read at, already resolved: skips the `eth_getBlockByNumber`
+   * lookup (for callers that pin a block themselves). The timestamp is used
+   * for ramps and oracle state. A `blockTag` given with it must name the same
+   * block number.
+   */
+  block?: { number: bigint | number; timestamp: bigint | number };
   /** Timeout in milliseconds for each RPC request to an RPC URL (default 30000; a transport times out on its own) */
   timeout?: number;
   /** eth_calls per JSON-RPC batch, or per `CurveRpc.call` (default 100; some providers accept fewer) */
@@ -322,12 +329,21 @@ async function context(source: RpcTarget, options: PoolReadOptions): Promise<Ctx
   if (bt === undefined) tag = "latest";
   else if (typeof bt === "string") tag = bt;
   else tag = "0x" + BigInt(bt).toString(16);
-  throwIfAborted(options.signal);
-  const block = (await rpc.request("eth_getBlockByNumber", [tag, false], { signal: options.signal })) as {
-    number: string;
-    timestamp: string;
-  } | null;
-  if (!block) throw new Error(`block ${tag} not found`);
+  let block: { number: string; timestamp: string } | null;
+  if (options.block) {
+    const number = BigInt(options.block.number);
+    if (bt !== undefined && !(/^0x[0-9a-f]+$/i.test(tag) && BigInt(tag) === number)) {
+      throw new Error(`blockTag ${tag} does not match block ${number}`);
+    }
+    block = { number: "0x" + number.toString(16), timestamp: "0x" + BigInt(options.block.timestamp).toString(16) };
+  } else {
+    throwIfAborted(options.signal);
+    block = (await rpc.request("eth_getBlockByNumber", [tag, false], { signal: options.signal })) as {
+      number: string;
+      timestamp: string;
+    } | null;
+    if (!block) throw new Error(`block ${tag} not found`);
+  }
   return {
     rpc,
     source,

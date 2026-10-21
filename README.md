@@ -344,7 +344,9 @@ detector reads `null` as "this pool has no such view", so a transport failure
 returned as `null` could misdetect a pool; thrown, it rejects `detectPool` and
 `readPoolState` like a failed URL read. `blockTag` arrives already resolved
 (`detectPool` and `readPoolState` resolve it to one block number first) and is
-passed on every call. `signal` is the caller's `AbortSignal`, passed to every
+passed on every call. A client that pins blocks itself can pass
+`block: { number, timestamp }` to `detectPool` / `readPoolState` to skip that
+`eth_getBlockByNumber` lookup. `signal` is the caller's `AbortSignal`, passed to every
 request; the helpers also stop between requests once it fires. With an RPC
 URL, `signal` aborts the in-flight `fetch` and stops retries. Timeouts, retries
 and batch splitting belong to the transport: `timeout` applies only to RPC

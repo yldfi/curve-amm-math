@@ -148,6 +148,26 @@ describe("CurveRpc transport: detectPool / readPoolState", () => {
     expect(Math.max(...log.calls.map((x) => x.calls.length))).toBe(4);
   });
 
+  it("a caller-pinned block skips the block lookup and reads the same state", async () => {
+    const header = lookup("eth_getBlockByNumber", [BLOCK_HEX, false]).result as { number: string; timestamp: string };
+    const block = { number: BigInt(header.number), timestamp: BigInt(header.timestamp) };
+    for (const name of ["aave", "TriDBR"]) {
+      const c = cases.find((x) => x.name.startsWith(name))!;
+      const viaUrl = await readPoolState(RPC, c.pool, { blockTag: recorded.block, lpToken: c.lpToken });
+      const { rpc, log } = recordedRpc();
+      const state = await readPoolState(rpc, c.pool, { block, lpToken: c.lpToken });
+      expect(plain(state)).toEqual(plain(viaUrl));
+      expect(log.requests.map((r) => r.method)).not.toContain("eth_getBlockByNumber");
+      expect(plain(await readPoolState(rpc, c.pool, { block, blockTag: recorded.block, lpToken: c.lpToken }))).toEqual(
+        plain(viaUrl)
+      );
+    }
+    const { rpc } = recordedRpc();
+    const pool = cases[0].pool;
+    await expect(detectPool(rpc, pool, { block, blockTag: recorded.block - 1 })).rejects.toThrow("does not match block");
+    await expect(detectPool(rpc, pool, { block, blockTag: "latest" })).rejects.toThrow("does not match block");
+  });
+
   it("reads a given descriptor without re-detecting", async () => {
     const c = cases.find((x) => x.name === "tricrypto2")!;
     const descriptor = await detectPool(RPC, c.pool, { blockTag: recorded.block });
