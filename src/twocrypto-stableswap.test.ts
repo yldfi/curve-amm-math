@@ -210,6 +210,11 @@ describe("Twocrypto (StableswapMath) behaviour", () => {
     expect(() => twocryptoStableswap.calcWithdrawOneCoin(params, params.totalSupply + 1n, 0)).toThrow("!amount");
     expect(() => twocryptoStableswap.calcWithdrawOneCoin(params, 1n, 2)).toThrow("coin out of range");
     expect(() => twocryptoStableswap.newtonD(params.A, [10n ** 22n, 10n ** 17n])).toThrow("!balance");
+    // v2.1.0d's MATH has no !balance assert
+    expect(twocryptoStableswap.newtonD(params.A, [10n ** 22n, 10n ** 17n], false)).toBeGreaterThan(0n);
+    const v210d = { ...params, version: "v2.1.0d" as const, policy: undefined, balances: [10n ** 22n, 10n ** 13n] as [bigint, bigint], precisions: [1n, 1n] as [bigint, bigint], priceScale: 10n ** 18n };
+    expect(() => twocryptoStableswap.calcTokenAmount({ ...v210d, version: "v3.0.0", policy: twocryptoStableswap.ZERO_FEE_POLICIES[0] }, [10n ** 18n, 0n], true)).toThrow("!balance");
+    expect(() => twocryptoStableswap.calcTokenAmount(v210d, [10n ** 18n, 0n], true)).not.toThrow("!balance");
     expect(() =>
       twocryptoStableswap.calcTokenAmount(params, [params.balances[0] + 1n, 0n], false)
     ).toThrow("exceeds pool balance");
