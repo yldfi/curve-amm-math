@@ -248,7 +248,10 @@ async function sweepPool(meta, block, seed) {
   out.cases = cases.length;
   out.mismatches = mismatches;
   const onlyPoolReverts = Object.values(out.views).every((v) => v.exact + v.bothRevert + v.libReturnsPoolReverts === v.n);
-  out.status = mismatches === 0 ? "exact" : onlyPoolReverts ? "pool-reverts" : "differs";
+  // "trivial": no mismatch, but at most one value actually compared (every
+  // case reverts on both sides, or only get_virtual_price had a size)
+  const compared = Object.values(out.views).reduce((t, v) => t + v.exact, 0);
+  out.status = mismatches > 0 ? (onlyPoolReverts ? "pool-reverts" : "differs") : compared <= 1 ? "trivial" : "exact";
   return out;
 }
 
@@ -279,7 +282,7 @@ await Promise.all(Array.from({ length: concurrency }, worker));
 const by = (s) => results.filter((r) => r.status === s);
 const tvl = (rs) => Math.round(rs.reduce((a, r) => a + (r.usdTotal ?? 0), 0));
 const summary = Object.fromEntries(
-  ["exact", "differs", "pool-reverts", "unsupported", "read-error"].map((s) => [s, { pools: by(s).length, usdTotal: tvl(by(s)) }]),
+  ["exact", "trivial", "differs", "pool-reverts", "unsupported", "read-error"].map((s) => [s, { pools: by(s).length, usdTotal: tvl(by(s)) }]),
 );
 console.log(JSON.stringify(summary, null, 2));
 const outFile = args.out ?? join(root, ".parity", `${chain}-${block}.json`);

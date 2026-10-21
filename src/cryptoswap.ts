@@ -742,7 +742,8 @@ function unscaleOutput3(
 /**
  * Off-chain implementation of CurveCryptoSwap2 `get_dy` (exact: same order
  * of operations and rounding as the contract)
- * @returns Output amount (0n for invalid inputs)
+ * @returns Output amount (0n for invalid indices or amounts)
+ * @throws Error where the contract's `newton_y` safety asserts revert (unsafe D, x or y)
  */
 export function getDy(
   params: TwocryptoParams,

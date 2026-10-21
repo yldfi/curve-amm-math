@@ -704,12 +704,15 @@ random sizes. Results (October 2026):
 
 | Chain | Block | Pools exact | TVL exact |
 |-------|-------|-------------|-----------|
-| Ethereum | 26236847 | 1,223 / 1,300 | $1,299.0M of $1,299.0M |
-| Base | 52876659 | 162 / 172 | $15.97M of $15.97M |
-| Arbitrum | 516761757 | 205 / 221 | $11.05M of $11.05M |
+| Ethereum | 26236847 | 1,184 / 1,300 | $1,299.00M of $1,299.03M |
+| Base | 52876659 | 157 / 172 | $15.97M of $15.97M |
+| Arbitrum | 516761757 | 191 / 221 | $11.053M of $11.055M |
 
-Most pools that are not exact are empty or dead pools whose own views revert
-(the library still quotes, e.g. `get_virtual_price` of an empty crypto pool).
+A pool counts as exact when every view matches at every size and more than
+one value was actually compared. Most of the rest are empty or dead pools: their
+views revert on both sides (39 / 5 / 14 such pools, about $2.8K TVL in all), or
+only the pool's revert (the library still quotes `get_virtual_price` of an
+empty crypto pool).
 The rest are pools with a dynamic Twocrypto `POLICY` (exact with `policyFee`),
 StableSwap-NG pools whose `stored_rates()` reverts, and a few pools with a coin
 that has no `decimals()`.
