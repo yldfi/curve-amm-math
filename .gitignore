@@ -9,3 +9,6 @@ coverage/
 # Published-package compatibility check cache
 .compat/
 .parity/
+
+# Claude Code local settings (may contain permission rules with secrets)
+.claude/settings.local.json
