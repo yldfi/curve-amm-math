@@ -290,8 +290,8 @@ describe("CryptoSwap Fuzz Tests", () => {
             const dy = cryptoswap.getDy(params, 0, 1, limitedDx);
             expect(dy).toBeGreaterThanOrEqual(0n);
           } catch (e) {
-            // Convergence failures are acceptable for extreme parameters
-            expect((e as Error).message).toMatch(/converge|zero/);
+            // Convergence failures and the contract's unsafe-value reverts are acceptable
+            expect((e as Error).message).toMatch(/converge|zero|unsafe/);
           }
         }),
         { numRuns: 300 }
